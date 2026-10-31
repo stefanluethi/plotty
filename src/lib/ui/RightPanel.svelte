@@ -60,6 +60,13 @@
 
   const tokens = '{coords} {lv95} {scale} {interval} {date}';
 
+  const landOn = () => S.forest.enabled || S.glaciers.enabled;
+  const setLand = (on: boolean) => {
+    if (on) S.forest.enabled = S.glaciers.enabled = true;
+    else S.forest.enabled = S.glaciers.enabled = false;
+  };
+  const landMeta = $derived([S.forest.enabled && 'Forest', S.glaciers.enabled && 'Glaciers'].filter(Boolean).join(', '));
+
   const R = $derived(S.relief);
   const reliefOn = () => R.tanaka.enabled || R.hatch.enabled || R.hachures.enabled;
   const setRelief = (on: boolean) => {
@@ -107,6 +114,18 @@
         <Field label="Every" bind:value={S.contours.index.every} step={1} min={2} max={20} unit="lines" />
         <PenPick label="Index pen" bind:value={S.contours.index.pen} />
         <Field label="Passes" bind:value={S.contours.index.passes} step={1} min={1} max={5} unit="×" />
+      {/if}
+    </div>
+
+    <div class="sub">
+      <Toggle label="Glacier and rock contours" bind:checked={S.contours.ground.enabled} />
+      {#if S.contours.ground.enabled}
+        <PenPick label="On glaciers" bind:value={S.contours.ground.icePen} />
+        <PenPick label="On rock, scree" bind:value={S.contours.ground.rockPen} />
+        <p class="hint">
+          As on Swiss maps: blue on ice, black on rock, the contour pen (brown, say) elsewhere. Ground types come from
+          swisstopo's own contour data.
+        </p>
       {/if}
     </div>
   </Section>
@@ -188,12 +207,124 @@
     </div>
   </Section>
 
-  <Section title="Lakes and rivers" bind:enabled={waterOn, setWater} meta={engine.waterLoading ? 'Loading' : ''}>
+  <Section title="Lakes and rivers" bind:enabled={waterOn, setWater} meta={engine.featuresLoading && waterOn() ? 'Loading' : ''}>
     <PenPick bind:value={S.water.pen} />
     <Toggle label="Lake shores" bind:checked={S.water.lakes} />
     <Toggle label="Rivers" bind:checked={S.water.rivers} />
     <Toggle label="Streams" bind:checked={S.water.streams} />
     <p class="hint">From swisstopo base map vector data. Streams get busy at scales above 1:50k.</p>
+  </Section>
+
+  <Section title="Roads" bind:enabled={S.roads.enabled} meta={engine.featuresLoading && S.roads.enabled ? 'Loading' : ''}>
+    <PenPick bind:value={S.roads.pen} />
+    <Toggle label="Motorways" bind:checked={S.roads.motorways} />
+    <Toggle label="Main roads" bind:checked={S.roads.main} />
+    <Field label="Passes, main roads" bind:value={S.roads.mainPasses} step={1} min={1} max={5} unit="×" wide />
+    <Toggle label="Local roads" bind:checked={S.roads.local} />
+    <Toggle label="Farm and forest tracks" bind:checked={S.roads.tracks} />
+    <p class="hint">Tunnels are left out. Local roads and tracks get dense around villages at 1:100k and above.</p>
+  </Section>
+
+  <Section title="Paths and trails" bind:enabled={S.paths.enabled} meta={engine.featuresLoading && S.paths.enabled ? 'Loading' : ''}>
+    <PenPick bind:value={S.paths.pen} />
+    <Toggle label="Hiking trails (yellow)" bind:checked={S.paths.hiking} />
+    <Toggle label="Mountain trails (white-red-white)" bind:checked={S.paths.mountain} />
+    <Toggle label="Alpine routes (white-blue-white)" bind:checked={S.paths.alpine} />
+    <Toggle label="Unmarked paths" bind:checked={S.paths.unmarked} />
+    <Toggle label="Dashed" bind:checked={S.paths.dashed} />
+    {#if S.paths.dashed}
+      <Field label="Dash" bind:value={S.paths.dash} step={0.1} min={0.2} max={10} unit="mm" />
+      <Field label="Gap" bind:value={S.paths.gap} step={0.1} min={0.2} max={10} unit="mm" />
+      <p class="hint">Every dash is a pen lift, so dashes add plot time.</p>
+    {/if}
+    <p class="hint">Footpaths by their signposted grade. Hiking routes that follow roads or tracks are drawn with those.</p>
+  </Section>
+
+  <Section title="Railways and lifts" bind:enabled={S.rail.enabled} meta={engine.featuresLoading && S.rail.enabled ? 'Loading' : ''}>
+    <PenPick bind:value={S.rail.pen} />
+    <Toggle label="Railways and trams" bind:checked={S.rail.railways} />
+    <Toggle label="Cable cars and lifts" bind:checked={S.rail.lifts} />
+  </Section>
+
+  <Section title="Forest and glaciers" open={false} bind:enabled={landOn, setLand} meta={landMeta}>
+    <div class="sub first">
+      <Toggle label="Forest" bind:checked={S.forest.enabled} />
+      {#if S.forest.enabled}
+        <PenPick bind:value={S.forest.pen} />
+        <Toggle label="Edges" bind:checked={S.forest.outline} />
+        <Select
+          label="Fill"
+          bind:value={S.forest.fill}
+          options={[
+            { value: 'none', label: 'None' },
+            { value: 'hatch', label: 'Hatching' },
+            { value: 'trees', label: 'Tree symbols' },
+          ]}
+        />
+        {#if S.forest.fill !== 'none'}
+          <Field label="Spacing" bind:value={S.forest.spacing} step={0.1} min={0.3} max={10} unit="mm" />
+        {/if}
+        {#if S.forest.fill === 'hatch'}
+          <Field label="Angle" bind:value={S.forest.angle} step={15} min={-180} max={180} unit="°" />
+        {/if}
+        {#if S.forest.fill === 'trees'}<p class="hint">Every tree symbol is a pen lift.</p>{/if}
+        <Toggle label="Also scrub and small woods" bind:checked={S.forest.scrub} />
+      {/if}
+    </div>
+    <div class="sub">
+      <Toggle label="Glacier edges" bind:checked={S.glaciers.enabled} />
+      {#if S.glaciers.enabled}<PenPick bind:value={S.glaciers.pen} />{/if}
+    </div>
+  </Section>
+
+  <Section title="Buildings" open={false} bind:enabled={S.buildings.enabled}>
+    <PenPick bind:value={S.buildings.pen} />
+    <Toggle label="Fill solid" bind:checked={S.buildings.fill} />
+    <Field label="Smallest" bind:value={S.buildings.minSize} step={0.1} min={0} max={10} unit="mm" />
+    <p class="hint">Buildings come in from 1:100k down. Smaller ones than this on paper are left out.</p>
+  </Section>
+
+  <Section title="Boundaries" open={false} bind:enabled={S.boundaries.enabled}>
+    <PenPick bind:value={S.boundaries.pen} />
+    <Toggle label="National border" bind:checked={S.boundaries.country} />
+    <Toggle label="Cantons" bind:checked={S.boundaries.canton} />
+    <Toggle label="Districts" bind:checked={S.boundaries.district} />
+    <Toggle label="Municipalities" bind:checked={S.boundaries.municipality} />
+    <Toggle label="Parks and UNESCO sites" bind:checked={S.boundaries.parks} />
+    <Toggle label="Dashed" bind:checked={S.boundaries.dashed} />
+    {#if S.boundaries.dashed}
+      <Field label="Dash" bind:value={S.boundaries.dash} step={0.1} min={0.2} max={10} unit="mm" />
+      <Field label="Gap" bind:value={S.boundaries.gap} step={0.1} min={0.2} max={10} unit="mm" />
+    {/if}
+  </Section>
+
+  <Section title="Labels" open={false} bind:enabled={S.labels.enabled}>
+    <PenPick bind:value={S.labels.pen} />
+    <Select label="Font" bind:value={S.labels.font} options={FONTS.map((f) => ({ value: f.id, label: f.label }))} />
+    <Field label="Letter height" bind:value={S.labels.size} step={0.1} min={0.8} max={10} unit="mm" />
+    <Toggle label="Peaks" bind:checked={S.labels.peaks} />
+    {#if S.labels.peaks}
+      <Field label="Peak detail" bind:value={S.labels.peakDetail} step={1} min={1} max={5} unit="of 5" wide />
+      <Toggle label="With heights" bind:checked={S.labels.heights} />
+    {/if}
+    <Toggle label="Places" bind:checked={S.labels.places} />
+    {#if S.labels.places}
+      <Select
+        label="Which places"
+        bind:value={S.labels.placeDetail}
+        options={[
+          { value: 'towns', label: 'Towns and cities' },
+          { value: 'villages', label: 'Villages too' },
+          { value: 'all', label: 'Hamlets and farms too' },
+        ]}
+      />
+    {/if}
+    <Toggle label="Spot heights" bind:checked={S.labels.spots} />
+    <Toggle label="Break lines around labels" bind:checked={S.labels.clear} />
+    {#if S.labels.clear}
+      <Field label="Clearance" bind:value={S.labels.gap} step={0.1} min={0} max={3} unit="mm" />
+    {/if}
+    <p class="hint">Labels that would overlap are left out, the least important first.</p>
   </Section>
 
   <Section title="GPS tracks" meta={S.tracks.length ? String(S.tracks.length) : ''}>
@@ -289,6 +420,11 @@
     margin-top: 6px;
     padding-top: 10px;
     border-top: 1px dashed var(--rule-soft);
+  }
+  .sub.first {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
   }
   .warn {
     color: var(--warn);

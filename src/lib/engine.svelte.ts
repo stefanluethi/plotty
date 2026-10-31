@@ -1,7 +1,7 @@
 import { loadSettings, saveSettings, type Settings } from './settings';
 import { computeLayout } from './layout';
 import { loadDem, resolveSource, expectedRes, type DemGrid, type DemRequest } from './geo/dem';
-import { loadWater, type WaterData } from './geo/water';
+import { loadFeatures, type MapFeatures } from './geo/features';
 import { parseFont, type StrokeFont } from './plot/font';
 import type { ComposeResult } from './plot/compose';
 import { FONTS } from './settings';
@@ -13,7 +13,7 @@ class Engine {
   result = $state.raw<ComposeResult | null>(null);
   dem = $state.raw<DemGrid | null>(null);
   demLoading = $state<{ done: number; total: number; label: string } | null>(null);
-  waterLoading = $state(false);
+  featuresLoading = $state(false);
   composing = $state(false);
   error = $state('');
   warning = $state(''); // problems that don't stop the plot (storage, fonts)
@@ -26,12 +26,12 @@ class Engine {
   private pending: Settings | null = null;
   private busy = false;
   private demAbort: AbortController | null = null;
-  private waterAbort: AbortController | null = null;
+  private featuresAbort: AbortController | null = null;
   private demTimer: any;
-  private waterTimer: any;
+  private featuresTimer: any;
   private composeTimer: any;
   private saveTimer: any;
-  private waterKey = '';
+  private featuresKey = '';
   private demKey = '';
   private idleWaiters: (() => void)[] = [];
 
@@ -159,30 +159,35 @@ class Engine {
     }, 350);
   }
 
-  requestWater(s: Settings) {
-    if (!s.water.lakes && !s.water.rivers && !s.water.streams) return;
+  /** Lakes, rivers, roads, paths and railways from the base map tiles, when any of them is drawn. */
+  requestFeatures(s: Settings) {
+    const wanted =
+      s.water.lakes || s.water.rivers || s.water.streams || s.roads.enabled || s.paths.enabled || s.rail.enabled ||
+      s.forest.enabled || s.glaciers.enabled || s.buildings.enabled || s.boundaries.enabled || s.labels.enabled ||
+      (s.contours.enabled && s.contours.ground.enabled);
+    if (!wanted) return;
     const L = computeLayout(s);
     const pad = (L.east - L.west) * 0.05;
     const key = [L.west - pad, L.south - pad, L.east + pad, L.north + pad, L.mPerMm].map((v) => Math.round(v / 100)).join('|');
-    if (key === this.waterKey) return;
-    clearTimeout(this.waterTimer);
-    this.waterTimer = setTimeout(async () => {
-      this.waterKey = key;
-      this.waterAbort?.abort();
-      const ac = (this.waterAbort = new AbortController());
-      this.waterLoading = true;
+    if (key === this.featuresKey) return;
+    clearTimeout(this.featuresTimer);
+    this.featuresTimer = setTimeout(async () => {
+      this.featuresKey = key;
+      this.featuresAbort?.abort();
+      const ac = (this.featuresAbort = new AbortController());
+      this.featuresLoading = true;
       try {
-        const w: WaterData = await loadWater(L.west - pad, L.south - pad, L.east + pad, L.north + pad, L.mPerMm, ac.signal);
+        const f: MapFeatures = await loadFeatures(L.west - pad, L.south - pad, L.east + pad, L.north + pad, L.mPerMm, ac.signal);
         if (ac.signal.aborted) return;
-        this.worker.postMessage({ type: 'water', water: w });
-        if (this.error.startsWith('Lakes')) this.error = '';
+        this.worker.postMessage({ type: 'features', features: f });
+        if (this.error.startsWith('Map features')) this.error = '';
         this.compose($state.snapshot(S) as Settings);
       } catch (e: any) {
         if (e?.name === 'AbortError' || ac.signal.aborted) return;
-        this.waterKey = '';
-        this.error = `Lakes and rivers could not be loaded (${e?.message ?? e}).`;
+        this.featuresKey = '';
+        this.error = `Map features (lakes, roads, labels and more) could not be loaded (${e?.message ?? e}).`;
       } finally {
-        if (this.waterAbort === ac) this.waterLoading = false;
+        if (this.featuresAbort === ac) this.featuresLoading = false;
       }
     }, 450);
   }

@@ -30,7 +30,7 @@
     untrack(() => {
       engine.save(snap);
       engine.requestDem(snap);
-      engine.requestWater(snap);
+      engine.requestFeatures(snap);
       engine.compose(snap);
     });
   });

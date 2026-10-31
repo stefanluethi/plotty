@@ -38,6 +38,7 @@ export interface Settings {
     thin: boolean; // drop intermediate lines where they would crowd
     thinSpacing: number; // crowding threshold, in pen widths
     index: { enabled: boolean; every: number; pen: string; passes: number };
+    ground: { enabled: boolean; icePen: string; rockPen: string }; // glacier and rock contours in their own pens
   };
   relief: {
     azimuth: number; // direction the light comes from, degrees clockwise from north
@@ -49,6 +50,56 @@ export interface Settings {
     hachures: { enabled: boolean; pen: string; spacing: number; length: number; passes: number; weight: 'light' | 'slope'; minSlope: number; join: boolean };
   };
   water: { lakes: boolean; rivers: boolean; streams: boolean; pen: string };
+  roads: { enabled: boolean; pen: string; motorways: boolean; main: boolean; local: boolean; tracks: boolean; mainPasses: number };
+  paths: {
+    enabled: boolean;
+    pen: string;
+    hiking: boolean; // marked hiking network, yellow
+    mountain: boolean; // white-red-white
+    alpine: boolean; // white-blue-white
+    unmarked: boolean;
+    dashed: boolean;
+    dash: number; // mm
+    gap: number; // mm
+  };
+  rail: { enabled: boolean; pen: string; railways: boolean; lifts: boolean };
+  forest: {
+    enabled: boolean;
+    pen: string;
+    scrub: boolean; // also scrub, hedges and small woods
+    outline: boolean;
+    fill: 'none' | 'hatch' | 'trees';
+    spacing: number; // mm between hatch lines or tree symbols
+    angle: number; // hatch angle, degrees
+  };
+  glaciers: { enabled: boolean; pen: string };
+  buildings: { enabled: boolean; pen: string; fill: boolean; minSize: number };
+  boundaries: {
+    enabled: boolean;
+    pen: string;
+    country: boolean;
+    canton: boolean;
+    district: boolean;
+    municipality: boolean;
+    parks: boolean;
+    dashed: boolean;
+    dash: number;
+    gap: number;
+  };
+  labels: {
+    enabled: boolean;
+    pen: string;
+    font: FontName;
+    size: number; // cap height of peak names, mm; other labels scale from it
+    peaks: boolean;
+    peakDetail: number; // 1 = only the most prominent summits … 5 = every named one
+    heights: boolean;
+    places: boolean;
+    placeDetail: 'towns' | 'villages' | 'all';
+    spots: boolean;
+    clear: boolean; // break other lines around labels
+    gap: number; // mm
+  };
   tracks: Track[];
   knockout: { enabled: boolean; gap: number }; // break other lines around tracks
   frame: { enabled: boolean; pen: string; offset: number; double: boolean; gap: number };
@@ -119,6 +170,7 @@ export function defaults(): Settings {
       thin: true,
       thinSpacing: 2,
       index: { enabled: true, every: 5, pen: 'p1', passes: 2 },
+      ground: { enabled: false, icePen: 'p2', rockPen: 'p1' },
     },
     relief: {
       azimuth: 315,
@@ -130,6 +182,20 @@ export function defaults(): Settings {
       hachures: { enabled: false, pen: 'p1', spacing: 0.8, length: 1.5, passes: 2, weight: 'light', minSlope: 5, join: false },
     },
     water: { lakes: true, rivers: true, streams: false, pen: 'p2' },
+    roads: { enabled: false, pen: 'p1', motorways: true, main: true, local: true, tracks: false, mainPasses: 2 },
+    paths: { enabled: false, pen: 'p1', hiking: true, mountain: true, alpine: true, unmarked: false, dashed: true, dash: 1.2, gap: 0.6 },
+    rail: { enabled: false, pen: 'p1', railways: true, lifts: true },
+    forest: { enabled: false, pen: 'p1', scrub: false, outline: true, fill: 'none', spacing: 1, angle: -45 },
+    glaciers: { enabled: false, pen: 'p2' },
+    buildings: { enabled: false, pen: 'p1', fill: true, minSize: 0.3 },
+    boundaries: {
+      enabled: false, pen: 'p1', country: true, canton: true, district: false, municipality: false, parks: false,
+      dashed: true, dash: 2, gap: 0.8,
+    },
+    labels: {
+      enabled: false, pen: 'p1', font: 'HersheySans1', size: 1.6, peaks: true, peakDetail: 3, heights: true,
+      places: true, placeDetail: 'villages', spots: false, clear: true, gap: 0.4,
+    },
     tracks: [],
     knockout: { enabled: true, gap: 0.8 },
     frame: { enabled: true, pen: 'p1', offset: 0, double: false, gap: 1.5 },

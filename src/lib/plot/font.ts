@@ -87,7 +87,7 @@ const SUBST: Record<string, string> = {
   '\u2019': "'", '\u2018': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-', '\u00d7': 'x', '\u2009': ' ', '\u00a0': ' ',
 };
 function glyph(f: StrokeFont, ch: string) {
-  return f.glyphs[ch] ?? f.glyphs[SUBST[ch]] ?? f.glyphs['?'];
+  return f.glyphs[ch] ?? f.glyphs[SUBST[ch]] ?? f.glyphs[ch.normalize('NFD')[0]] ?? f.glyphs['?'];
 }
 
 export function textWidth(f: StrokeFont, text: string, size: number) {

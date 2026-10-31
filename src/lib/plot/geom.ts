@@ -208,6 +208,39 @@ export function splitWhere(l: Line, keep: (x: number, y: number) => boolean): Li
   return out;
 }
 
+/** Cut a line into dashes of `dash` mm with `gap` mm between them, keeping the pattern across vertices. */
+export function dashLine(l: Line, dash: number, gap: number): Line[] {
+  if (dash <= 0 || gap <= 0) return [l];
+  const out: Line[] = [];
+  let cur: Line | null = [l[0], l[1]];
+  let left = dash; // mm left in the current dash or gap
+  for (let i = 2; i < l.length; i += 2) {
+    let ax = l[i - 2], ay = l[i - 1];
+    const bx = l[i], by = l[i + 1];
+    let seg = Math.hypot(bx - ax, by - ay);
+    while (seg > left) {
+      const t = left / seg;
+      const px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+      if (cur) {
+        cur.push(px, py);
+        out.push(cur);
+        cur = null;
+        left = gap;
+      } else {
+        cur = [px, py];
+        left = dash;
+      }
+      seg -= Math.hypot(px - ax, py - ay);
+      ax = px;
+      ay = py;
+    }
+    left -= seg;
+    if (cur) cur.push(bx, by);
+  }
+  if (cur && cur.length >= 4) out.push(cur);
+  return out;
+}
+
 export function rectLine(x: number, y: number, w: number, h: number): Line {
   return [x, y, x + w, y, x + w, y + h, x, y + h, x, y];
 }

@@ -1,12 +1,14 @@
-import type { Settings } from '../settings';
+import type { Settings, Pen } from '../settings';
 import { computeLayout, type Layout } from '../layout';
 import type { DemGrid } from '../geo/dem';
-import type { WaterData } from '../geo/water';
+import type { MapFeatures, WayKind } from '../geo/features';
 import { blur, slopeGrid, niceInterval, traceContours, type ContourLine } from './contours';
-import { clipPolyline, simplify, lineLength, passes, densify, SegmentIndex, splitWhere, rectLine, type Line } from './geom';
+import { clipPolyline, simplify, lineLength, passes, densify, SegmentIndex, splitWhere, rectLine, dashLine, type Line } from './geom';
 import { renderText, textWidth, type StrokeFont } from './font';
 import { orderLines, joinLines, travelStats } from './optimize';
 import { gradients, shadeGrid, tanaka, hatch, hachures, lightVector, type GridMap } from './relief';
+import { hatchPolys, treeSymbols, polySize, groundGrid, splitByGround } from './areas';
+import { placeLabels, RectIndex, type LabelItem } from './labels';
 import { formatCoords, swissNumber } from '../geo/lv95';
 
 export interface PenOutput {
@@ -91,6 +93,23 @@ function reliefRange(T: Terrain, key: string, inMap: (i: number) => boolean) {
   return reliefRangeCache;
 }
 let hachureTraceCache: { key: string; lines: ContourLine[] } | null = null;
+let groundCache: { key: string; grid: Uint8Array } | null = null;
+
+const PLACE_CLASSES = {
+  towns: ['city', 'town'],
+  villages: ['city', 'town', 'village'],
+  all: ['city', 'town', 'village', 'suburb', 'hamlet', 'neighbourhood', 'isolated_dwelling'],
+};
+const PLACE_STYLE: Record<string, { size: number; priority: number }> = {
+  city: { size: 1.8, priority: 0 },
+  town: { size: 1.5, priority: 1 },
+  village: { size: 1.2, priority: 3 },
+  suburb: { size: 1, priority: 4 },
+  hamlet: { size: 1, priority: 5 },
+  neighbourhood: { size: 0.85, priority: 6 },
+  isolated_dwelling: { size: 0.85, priority: 7 },
+};
+const PEAK_PRIORITY = [1.5, 2, 3.5, 4.5, 5.5];
 
 // Scrubbing pens, thinning, frame or title leaves terrain, area and interval alone,
 // so the two expensive terrain passes below are kept between runs.
@@ -145,7 +164,7 @@ function thinChain(every: number) {
   return chain.length ? chain : [1];
 }
 
-export function compose(s: Settings, dem: DemGrid | null, water: WaterData | null, fonts: Record<string, StrokeFont>): ComposeResult {
+export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures | null, fonts: Record<string, StrokeFont>): ComposeResult {
   const L = computeLayout(s);
   const pen = (id: string) => s.pens.find((p) => p.id === id) ?? s.pens[0];
   const byPen = new Map<string, Line[]>();
@@ -190,11 +209,55 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
   }
   const doKnock = s.knockout.enabled && trackLines.some((t) => t.lines.length) && knockR > 0;
   knockR = Math.min(knockR, 4);
+
+  // Labels early too: other layers can leave room around them.
+  let labelClear: RectIndex | null = null;
+  const lb = s.labels;
+  if (lb.enabled && features) {
+    const font = fonts[lb.font] ?? Object.values(fonts)[0];
+    if (font) {
+      const P = (e: number, n: number) => [L.map.x + (e - L.west) / L.mPerMm, L.map.y + (L.north - n) / L.mPerMm];
+      const items: LabelItem[] = [];
+      if (lb.peaks)
+        for (const pk of features.peaks) {
+          if (pk.rank > lb.peakDetail) continue;
+          const [x, y] = P(pk.e, pk.n);
+          const pass = pk.cls === 'saddle' || pk.cls === 'mountain_pass';
+          items.push({
+            text: lb.heights && pk.ele ? `${pk.name} ${Math.round(pk.ele)}` : pk.name,
+            x, y, size: lb.size * (pk.rank <= 1 ? 1.15 : 1), marker: pass ? 'none' : 'peak',
+            priority: (PEAK_PRIORITY[pk.rank - 1] ?? 6) - pk.ele / 1e5,
+          });
+        }
+      if (lb.places) {
+        const allowed = PLACE_CLASSES[lb.placeDetail] ?? PLACE_CLASSES.villages;
+        for (const pl of features.places) {
+          if (!allowed.includes(pl.cls)) continue;
+          const st = PLACE_STYLE[pl.cls];
+          const [x, y] = P(pl.e, pl.n);
+          items.push({ text: pl.name, x, y, size: lb.size * st.size, marker: 'none', priority: st.priority + pl.rank / 1000 });
+        }
+      }
+      if (lb.spots)
+        for (const sp of features.spots) {
+          const [x, y] = P(sp.e, sp.n);
+          items.push({ text: String(Math.round(sp.ele)), x, y, size: lb.size * 0.8, marker: 'spot', priority: 9 - sp.ele / 1e5 });
+        }
+      const r = placeLabels(items, font, L.map, Math.max(0, lb.gap));
+      add(pen(lb.pen).id, r.lines);
+      if (lb.clear && !r.clear.empty) labelClear = r.clear;
+    }
+  }
+
   const finish = (lines: Line[], minLen: number): Line[] => {
     let out = lines;
     if (doKnock) out = out.flatMap((l) => splitWhere(densify(l, knockR / 2), (x, y) => !knock.near(x, y, knockR)));
+    if (labelClear) out = out.flatMap((l) => splitWhere(densify(l, 0.25), (x, y) => !labelClear!.hit(x, y)));
     return out.map((l) => simplify(l, SIMPLIFY)).filter((l) => lineLength(l) >= minLen);
   };
+  const toPaper = (lvs: number[][]) => lvs.flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
+  const dashed = (lines: Line[], on: boolean, dash: number, gap: number) =>
+    on ? joinLines(orderLines(lines, 0, 0)).flatMap((l) => dashLine(l, Math.max(0.1, dash), Math.max(0.1, gap))) : lines;
 
   // Where the terrain grid sits on paper.
   const k = dem ? dem.cell / L.mPerMm : 0; // grid step on paper
@@ -278,23 +341,39 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
       const idx = finish(index, c.minLength);
       stats.contourLines = reg.length + idx.length;
       const ip = pen(c.index.pen);
-      if (rl.tanaka.enabled) {
-        // Illuminated contours: heavier where the slope turns away from the light.
-        const g = grad(T, dem);
-        const t = rl.tanaka;
-        const litPen = pen(t.litPen);
-        const run = (lines: Line[], p: typeof cp, base: number) => {
+      const g = rl.tanaka.enabled ? grad(T, dem) : null;
+      const t = rl.tanaka;
+      const litPen = pen(t.litPen);
+      const draw = (lines: Line[], p: Pen, base: number) => {
+        if (!lines.length) return;
+        if (g) {
+          // Illuminated contours: heavier where the slope turns away from the light.
           const r = tanaka(lines, g.gx, g.gy, G, {
             azimuth: rl.azimuth, max: Math.max(1, Math.round(t.passes)), base, lit: t.lit, step: p.width * 0.6, simplify: SIMPLIFY,
           });
           add(p.id, r.dark.flatMap((l) => clipPolyline(l, L.map)));
           if (r.lit.length) add(litPen.id, r.lit.flatMap((l) => clipPolyline(l, L.map)));
-        };
-        run(reg, cp, 1);
-        if (idx.length) run(idx, ip, Math.max(1, c.index.passes));
+        } else if (base > 1) add(p.id, lines.flatMap((l) => passes(l, base, p.width * 0.6)).flatMap((l) => clipPolyline(l, L.map)));
+        else add(p.id, lines);
+      };
+      const idxBase = Math.max(1, c.index.passes);
+      if (c.ground.enabled && features) {
+        // Contours on glaciers and on rock or scree in their own pens, as on Swiss maps.
+        const key = `${features.key}|${dem.id}|${ox}|${oy}|${k}`;
+        if (groundCache?.key !== key) {
+          const tr = features.terrain;
+          groundCache = { key, grid: groundGrid(G, { land: tr.land.map(toPaperLine), ice: tr.ice.map(toPaperLine), rock: tr.scree.map(toPaperLine) }, 3) };
+        }
+        const pens = [null, pen(c.ground.icePen), pen(c.ground.rockPen)];
+        const rg = splitByGround(reg, groundCache.grid, G, 1.5);
+        const ig = splitByGround(idx, groundCache.grid, G, 1.5);
+        for (let gi = 0; gi < 3; gi++) {
+          draw(rg[gi], pens[gi] ?? cp, 1);
+          draw(ig[gi], pens[gi] ?? ip, idxBase);
+        }
       } else {
-        add(cp.id, reg);
-        if (idx.length) add(ip.id, idx.flatMap((l) => passes(l, c.index.passes, ip.width * 0.6)).flatMap((l) => clipPolyline(l, L.map)));
+        draw(reg, cp, 1);
+        draw(idx, ip, idxBase);
       }
     }
   }
@@ -338,8 +417,73 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
     }
   }
 
+  // Roads, paths, railways
+  if (features) {
+    const ways = (kinds: WayKind[]) => kinds.flatMap((k) => features.ways[k] ?? []).flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
+    if (s.roads.enabled) {
+      const r = s.roads;
+      const rp = pen(r.pen);
+      const main = finish(ways([...(r.motorways ? ['motorway' as const] : []), ...(r.main ? ['main' as const] : [])]), 0.3);
+      add(rp.id, main.flatMap((l) => passes(l, Math.max(1, Math.round(r.mainPasses)), rp.width * 0.6)).flatMap((l) => clipPolyline(l, L.map)));
+      add(rp.id, finish(ways([...(r.local ? ['local' as const] : []), ...(r.tracks ? ['track' as const] : [])]), 0.3));
+    }
+    if (s.paths.enabled) {
+      const p = s.paths;
+      const kinds: WayKind[] = [];
+      if (p.hiking) kinds.push('hiking');
+      if (p.mountain) kinds.push('mountain');
+      if (p.alpine) kinds.push('alpine');
+      if (p.unmarked) kinds.push('path');
+      // Joined before dashing so the pattern runs on across tile borders.
+      add(pen(p.pen).id, dashed(finish(ways(kinds), 0.3), p.dashed, p.dash, p.gap));
+    }
+    if (s.rail.enabled) {
+      const kinds: WayKind[] = [];
+      if (s.rail.railways) kinds.push('rail');
+      if (s.rail.lifts) kinds.push('lift');
+      add(pen(s.rail.pen).id, finish(ways(kinds), 0.3));
+    }
+
+    // Forest and glaciers
+    if (s.forest.enabled) {
+      const f = s.forest;
+      const fp = pen(f.pen);
+      const sets = f.scrub ? [features.forest, features.scrub] : [features.forest];
+      if (f.outline) add(fp.id, finish(toPaper(sets.flatMap((t) => t.edges)), 0.3));
+      if (f.fill !== 'none') {
+        const polys = sets.flatMap((t) => t.polys).map((p) => p.map(toPaperLine));
+        const sp = Math.max(0.3, f.spacing);
+        const lines = f.fill === 'hatch' ? hatchPolys(polys, f.angle, sp, L.map) : treeSymbols(polys, sp, sp * 0.22, L.map);
+        add(fp.id, finish(lines, 0.2));
+      }
+    }
+    if (s.glaciers.enabled) add(pen(s.glaciers.pen).id, finish(toPaper(features.glacierEdges), 0.3));
+
+    // Buildings
+    if (s.buildings.enabled) {
+      const bp = pen(s.buildings.pen);
+      const polys = features.buildings.map((p) => p.map(toPaperLine)).filter((p) => polySize(p) >= s.buildings.minSize);
+      add(bp.id, finish(polys.flat().flatMap((r) => clipPolyline(r, L.map)), 0));
+      if (s.buildings.fill) add(bp.id, finish(hatchPolys(polys, 45, bp.width * 0.9, L.map), 0));
+    }
+
+    // Boundaries
+    if (s.boundaries.enabled) {
+      const b = s.boundaries;
+      const lvs = [
+        ...(b.country ? features.boundaries.country : []),
+        ...(b.canton ? features.boundaries.canton : []),
+        ...(b.district ? features.boundaries.district : []),
+        ...(b.municipality ? features.boundaries.municipality : []),
+        ...(b.parks ? features.parkEdges : []),
+      ];
+      add(pen(b.pen).id, finish(dashed(toPaper(lvs), b.dashed, b.dash, b.gap), 0.1));
+    }
+  }
+
   // Water
-  if (water) {
+  if (features) {
+    const water = features;
     const wp = pen(s.water.pen);
     const sets: number[][][] = [];
     if (s.water.lakes) sets.push(water.lakes);
