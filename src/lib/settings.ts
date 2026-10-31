@@ -39,6 +39,15 @@ export interface Settings {
     thinSpacing: number; // crowding threshold, in pen widths
     index: { enabled: boolean; every: number; pen: string; passes: number };
   };
+  relief: {
+    azimuth: number; // direction the light comes from, degrees clockwise from north
+    altitude: number; // light height above the horizon, degrees
+    exaggeration: number; // vertical scale applied to the terrain before shading
+    smoothing: number; // terrain smoothing for hatching and hachures, mm on paper
+    tanaka: { enabled: boolean; passes: number; lit: 'normal' | 'omit' | 'pen'; litPen: string };
+    hatch: { enabled: boolean; pen: string; spacing: number; angle: number; tones: number; start: number; minDash: number };
+    hachures: { enabled: boolean; pen: string; spacing: number; length: number; passes: number; weight: 'light' | 'slope'; minSlope: number; join: boolean };
+  };
   water: { lakes: boolean; rivers: boolean; streams: boolean; pen: string };
   tracks: Track[];
   knockout: { enabled: boolean; gap: number }; // break other lines around tracks
@@ -110,6 +119,15 @@ export function defaults(): Settings {
       thin: true,
       thinSpacing: 2,
       index: { enabled: true, every: 5, pen: 'p1', passes: 2 },
+    },
+    relief: {
+      azimuth: 315,
+      altitude: 45,
+      exaggeration: 1,
+      smoothing: 0.8,
+      tanaka: { enabled: false, passes: 3, lit: 'normal', litPen: 'p1' },
+      hatch: { enabled: false, pen: 'p1', spacing: 1, angle: 45, tones: 3, start: 15, minDash: 0.8 },
+      hachures: { enabled: false, pen: 'p1', spacing: 0.8, length: 1.5, passes: 2, weight: 'light', minSlope: 5, join: false },
     },
     water: { lakes: true, rivers: true, streams: false, pen: 'p2' },
     tracks: [],

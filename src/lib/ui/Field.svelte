@@ -29,7 +29,7 @@
   });
 
   // How the unit is read out after the label, e.g. "Line width, mm".
-  const spoken = $derived(({ '×': 'times', '%': 'percent', 'm': 'metres' } as Record<string, string>)[unit] ?? unit);
+  const spoken = $derived(({ '×': 'times', '%': 'percent', 'm': 'metres', '°': 'degrees' } as Record<string, string>)[unit] ?? unit);
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   function commit() {
     const v = parseFloat(text.replace(',', '.').replace(/[’']/g, ''));

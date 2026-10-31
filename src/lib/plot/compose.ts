@@ -6,6 +6,7 @@ import { blur, slopeGrid, niceInterval, traceContours, type ContourLine } from '
 import { clipPolyline, simplify, lineLength, passes, densify, SegmentIndex, splitWhere, rectLine, type Line } from './geom';
 import { renderText, textWidth, type StrokeFont } from './font';
 import { orderLines, joinLines, travelStats } from './optimize';
+import { gradients, shadeGrid, tanaka, hatch, hachures, lightVector, type GridMap } from './relief';
 import { formatCoords, swissNumber } from '../geo/lv95';
 
 export interface PenOutput {
@@ -22,6 +23,7 @@ export interface ComposeStats {
   maxElev: number | null;
   crowded: number | null; // share of map area where base contours would touch
   contourLines: number;
+  hachureInterval: number | null;
   demSource: string | null;
   demCell: number | null;
 }
@@ -34,16 +36,61 @@ export interface ComposeResult {
 
 const SIMPLIFY = 0.03; // mm on paper
 
-let blurCache: { key: string; data: Float32Array; slope: Float32Array } | null = null;
-
-function terrain(dem: DemGrid, sigma: number) {
-  const key = `${dem.id}|${sigma.toFixed(2)}`;
-  if (blurCache?.key !== key) {
-    const data = blur(dem.data, dem.w, dem.h, sigma);
-    blurCache = { key, data, slope: slopeGrid(data, dem.w, dem.h, dem.cell) };
-  }
-  return blurCache;
+interface Terrain {
+  key: string;
+  data: Float32Array;
+  slope: Float32Array;
+  grad?: { gx: Float32Array; gy: Float32Array };
 }
+
+// Two slots: contours and relief shading usually use different smoothing.
+let blurCache: Terrain[] = [];
+
+function terrain(dem: DemGrid, sigma: number): Terrain {
+  const key = `${dem.id}|${sigma.toFixed(2)}`;
+  let t = blurCache.find((b) => b.key === key);
+  if (!t) {
+    const data = blur(dem.data, dem.w, dem.h, sigma);
+    t = { key, data, slope: slopeGrid(data, dem.w, dem.h, dem.cell) };
+    blurCache = [t, ...blurCache].slice(0, 2);
+  } else blurCache = [t, ...blurCache.filter((b) => b !== t)];
+  return t;
+}
+
+function grad(T: Terrain, dem: DemGrid) {
+  return (T.grad ??= gradients(T.data, dem.w, dem.h, dem.cell));
+}
+
+let shadeCache: { key: string; shade: Float32Array } | null = null;
+function shaded(T: Terrain, dem: DemGrid, az: number, alt: number, z: number) {
+  const key = `${T.key}|${az}|${alt}|${z}`;
+  if (shadeCache?.key !== key) {
+    const g = grad(T, dem);
+    shadeCache = { key, shade: shadeGrid(g.gx, g.gy, az, alt, z) };
+  }
+  return shadeCache.shade;
+}
+
+// Elevation range and median slope for the hachure rows.
+let reliefRangeCache: { key: string; mn: number; mx: number; tanP: number } | null = null;
+function reliefRange(T: Terrain, key: string, inMap: (i: number) => boolean) {
+  if (reliefRangeCache?.key !== key) {
+    let mn = Infinity, mx = -Infinity;
+    const sample: number[] = [];
+    const step = Math.max(1, Math.floor(T.slope.length / 200000));
+    for (let i = 0; i < T.data.length; i++) {
+      if (!inMap(i)) continue;
+      const v = T.data[i];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+      if (i % step === 0) sample.push(T.slope[i]);
+    }
+    sample.sort((a, b) => a - b);
+    reliefRangeCache = { key, mn, mx, tanP: sample.length ? sample[Math.floor(sample.length * 0.5)] : 0 };
+  }
+  return reliefRangeCache;
+}
+let hachureTraceCache: { key: string; lines: ContourLine[] } | null = null;
 
 // Scrubbing pens, thinning, frame or title leaves terrain, area and interval alone,
 // so the two expensive terrain passes below are kept between runs.
@@ -110,7 +157,7 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
     for (const l of lines) arr.push(l);
   };
   const stats: ComposeStats = {
-    interval: null, minElev: null, maxElev: null, crowded: null, contourLines: 0,
+    interval: null, minElev: null, maxElev: null, crowded: null, contourLines: 0, hachureInterval: null,
     demSource: dem?.source ?? null, demCell: dem?.cell ?? null,
   };
   const toPaperLine = (lv: ArrayLike<number>): Line => {
@@ -149,20 +196,25 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
     return out.map((l) => simplify(l, SIMPLIFY)).filter((l) => lineLength(l) >= minLen);
   };
 
+  // Where the terrain grid sits on paper.
+  const k = dem ? dem.cell / L.mPerMm : 0; // grid step on paper
+  const ox = dem ? L.map.x + (dem.west + dem.cell / 2 - L.west) / L.mPerMm : 0;
+  const oy = dem ? L.map.y + (L.north - dem.north + dem.cell / 2) / L.mPerMm : 0;
+  const G: GridMap | null = dem && dem.w >= 2 && dem.h >= 2 ? { w: dem.w, h: dem.h, ox, oy, k } : null;
+  const inMapOf = (data: Float32Array) => (i: number) => {
+    const gx = i % dem!.w, gy = (i / dem!.w) | 0;
+    const x = ox + gx * k, y = oy + gy * k;
+    return x >= L.map.x && x <= L.map.x + L.map.w && y >= L.map.y && y <= L.map.y + L.map.h && data[i] === data[i];
+  };
+  const rl = s.relief;
+
   // Contours
-  if (s.contours.enabled && dem) {
+  if (s.contours.enabled && dem && G) {
     const c = s.contours;
     const cp = pen(c.pen);
     const sigma = (c.smoothing * L.mPerMm) / dem.cell;
     const T = terrain(dem, sigma);
-    const k = dem.cell / L.mPerMm; // grid step on paper
-    const ox = L.map.x + (dem.west + dem.cell / 2 - L.west) / L.mPerMm;
-    const oy = L.map.y + (L.north - dem.north + dem.cell / 2) / L.mPerMm;
-    const inMap = (i: number) => {
-      const gx = i % dem.w, gy = (i / dem.w) | 0;
-      const x = ox + gx * k, y = oy + gy * k;
-      return x >= L.map.x && x <= L.map.x + L.map.w && y >= L.map.y && y <= L.map.y + L.map.h && T.data[i] === T.data[i];
-    };
+    const inMap = inMapOf(T.data);
     const R = terrainInMap(T, `${T.key}|${ox}|${oy}|${k}|${L.map.x}|${L.map.y}|${L.map.w}|${L.map.h}`, inMap);
     const { mn, mx, slopes } = R;
     if (mn <= mx) {
@@ -225,10 +277,63 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
       const reg = finish(regular, c.minLength);
       const idx = finish(index, c.minLength);
       stats.contourLines = reg.length + idx.length;
-      add(cp.id, reg);
-      if (idx.length) {
-        const ip = pen(c.index.pen);
-        add(ip.id, idx.flatMap((l) => passes(l, c.index.passes, ip.width * 0.6)).flatMap((l) => clipPolyline(l, L.map)));
+      const ip = pen(c.index.pen);
+      if (rl.tanaka.enabled) {
+        // Illuminated contours: heavier where the slope turns away from the light.
+        const g = grad(T, dem);
+        const t = rl.tanaka;
+        const litPen = pen(t.litPen);
+        const run = (lines: Line[], p: typeof cp, base: number) => {
+          const r = tanaka(lines, g.gx, g.gy, G, {
+            azimuth: rl.azimuth, max: Math.max(1, Math.round(t.passes)), base, lit: t.lit, step: p.width * 0.6, simplify: SIMPLIFY,
+          });
+          add(p.id, r.dark.flatMap((l) => clipPolyline(l, L.map)));
+          if (r.lit.length) add(litPen.id, r.lit.flatMap((l) => clipPolyline(l, L.map)));
+        };
+        run(reg, cp, 1);
+        if (idx.length) run(idx, ip, Math.max(1, c.index.passes));
+      } else {
+        add(cp.id, reg);
+        if (idx.length) add(ip.id, idx.flatMap((l) => passes(l, c.index.passes, ip.width * 0.6)).flatMap((l) => clipPolyline(l, L.map)));
+      }
+    }
+  }
+
+  // Relief shading layers
+  if (dem && G && (rl.hatch.enabled || rl.hachures.enabled)) {
+    const sigma = (rl.smoothing * L.mPerMm) / dem.cell;
+    const T = terrain(dem, sigma);
+    const z = Math.max(0.1, rl.exaggeration);
+    const alt = Math.min(89, Math.max(1, rl.altitude));
+    const shade = shaded(T, dem, rl.azimuth, alt, z);
+    const flat = lightVector(rl.azimuth, alt).z; // shade of level ground
+
+    if (rl.hatch.enabled) {
+      const h = rl.hatch;
+      const lines = hatch(shade, G, L.map, {
+        angle: h.angle, spacing: Math.max(0.2, h.spacing), tones: h.tones, start: Math.min(0.95, Math.max(0, h.start / 100)),
+        minDash: Math.max(0, h.minDash), flat,
+      });
+      add(pen(h.pen).id, finish(lines, h.minDash));
+    }
+
+    if (rl.hachures.enabled) {
+      const hc = rl.hachures;
+      const hp = pen(hc.pen);
+      const R = reliefRange(T, `${T.key}|${ox}|${oy}|${k}|${L.map.x}|${L.map.y}|${L.map.w}|${L.map.h}`, inMapOf(T.data));
+      if (R.mn <= R.mx) {
+        // Rows one stroke length apart on ground of median steepness.
+        let interval = niceInterval(Math.max(1, hc.length * L.mPerMm * R.tanP));
+        while ((R.mx - R.mn) / interval > 600) interval = niceInterval(interval * 1.5);
+        stats.hachureInterval = interval;
+        const key = `${T.key}|${interval}`;
+        if (hachureTraceCache?.key !== key) hachureTraceCache = { key, lines: traceContours(T.data, dem.w, dem.h, interval) };
+        const g = grad(T, dem);
+        const lines = hachures(hachureTraceCache.lines, T.data, g.gx, g.gy, shade, G, L.map, {
+          interval, spacing: Math.max(0.2, hc.spacing), maxLength: Math.max(0.5, hc.length * 3), passes: Math.max(1, Math.round(hc.passes)),
+          weight: hc.weight, minTan: Math.tan((Math.max(0, hc.minSlope) * Math.PI) / 180), flat, step: hp.width * 0.6, simplify: SIMPLIFY, join: hc.join,
+        });
+        add(hp.id, finish(lines, 0.3));
       }
     }
   }

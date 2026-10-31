@@ -59,6 +59,18 @@
   };
 
   const tokens = '{coords} {lv95} {scale} {interval} {date}';
+
+  const R = $derived(S.relief);
+  const reliefOn = () => R.tanaka.enabled || R.hatch.enabled || R.hachures.enabled;
+  const setRelief = (on: boolean) => {
+    if (on) R.tanaka.enabled = true;
+    else R.tanaka.enabled = R.hatch.enabled = R.hachures.enabled = false;
+  };
+  const reliefMeta = $derived(
+    [R.tanaka.enabled && 'Tanaka', R.hatch.enabled && 'Hatching', R.hachures.enabled && 'Hachures'].filter(Boolean).join(', '),
+  );
+  const lightFrom = $derived(['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round((((R.azimuth % 360) + 360) % 360) / 45) % 8]);
+
 </script>
 
 <aside class="panel" aria-label="Layers">
@@ -95,6 +107,83 @@
         <Field label="Every" bind:value={S.contours.index.every} step={1} min={2} max={20} unit="lines" />
         <PenPick label="Index pen" bind:value={S.contours.index.pen} />
         <Field label="Passes" bind:value={S.contours.index.passes} step={1} min={1} max={5} unit="×" />
+      {/if}
+    </div>
+  </Section>
+
+  <Section title="Relief" bind:enabled={reliefOn, setRelief} meta={reliefMeta}>
+    <Field label="Light from" bind:value={R.azimuth} step={15} min={0} max={360} unit="°" />
+    <p class="hint">
+      Light from {lightFrom}{lightFrom === 'NW' ? ', the map standard' : ''}. Lit from the bottom, valleys can read as ridges.
+    </p>
+    <Field label="Light height" bind:value={R.altitude} step={5} min={5} max={85} unit="°" />
+    <Field label="Exaggeration" bind:value={R.exaggeration} step={0.25} min={0.25} max={10} unit="×" />
+    <Field label="Smoothing" bind:value={R.smoothing} step={0.1} min={0} max={5} unit="mm" />
+
+    <div class="sub">
+      <Toggle label="Illuminated contours" bind:checked={R.tanaka.enabled} />
+      {#if R.tanaka.enabled}
+        <Field label="Shaded side" bind:value={R.tanaka.passes} step={1} min={1} max={5} unit="×" />
+        <Select
+          label="Lit side"
+          bind:value={R.tanaka.lit}
+          options={[
+            { value: 'normal', label: 'Thin line' },
+            { value: 'omit', label: 'Leave out' },
+            { value: 'pen', label: 'Other pen' },
+          ]}
+        />
+        {#if R.tanaka.lit === 'pen'}<PenPick label="Lit pen" bind:value={R.tanaka.litPen} />{/if}
+        <p class="hint" class:warn={!S.contours.enabled}>
+          {S.contours.enabled
+            ? R.tanaka.lit === 'pen'
+              ? 'Classic Tanaka: a white pen on the lit side and a dark one on the shaded side, on grey or tinted paper.'
+              : 'Contours get extra passes where the slope turns away from the light. Uses the contour smoothing.'
+            : 'Turn on Contours to see this.'}
+        </p>
+      {/if}
+    </div>
+
+    <div class="sub">
+      <Toggle label="Shadow hatching" bind:checked={R.hatch.enabled} />
+      {#if R.hatch.enabled}
+        <PenPick bind:value={R.hatch.pen} />
+        <Field label="Line spacing" bind:value={R.hatch.spacing} step={0.1} min={0.2} max={10} unit="mm" />
+        <Field label="Angle" bind:value={R.hatch.angle} step={15} min={-180} max={180} unit="°" />
+        <Field label="Tones" bind:value={R.hatch.tones} step={1} min={1} max={4} unit="" />
+        <Field label="Starts at" bind:value={R.hatch.start} step={5} min={0} max={95} unit="%" />
+        <Field label="Shortest dash" bind:value={R.hatch.minDash} step={0.1} min={0} max={10} unit="mm" />
+        <p class="hint">
+          Hatches ground that is darker than flat ground. Each tone adds lines in between, tones 3 and 4 cross-hatch. A fine
+          light grey pen early in the rack works best.
+        </p>
+      {/if}
+    </div>
+
+    <div class="sub">
+      <Toggle label="Hachures" bind:checked={R.hachures.enabled} />
+      {#if R.hachures.enabled}
+        <PenPick bind:value={R.hachures.pen} />
+        <Field label="Stroke spacing" bind:value={R.hachures.spacing} step={0.05} min={0.2} max={5} unit="mm" />
+        <Field label="Stroke length" bind:value={R.hachures.length} step={0.25} min={0.5} max={10} unit="mm" />
+        <Field label="Heaviest" bind:value={R.hachures.passes} step={1} min={1} max={5} unit="×" />
+        <Select
+          label="Heavier where"
+          bind:value={R.hachures.weight}
+          options={[
+            { value: 'light', label: 'In shade' },
+            { value: 'slope', label: 'Steep' },
+          ]}
+        />
+        <Field label="Flatter than" bind:value={R.hachures.minSlope} step={1} min={0} max={45} unit="°" />
+        <Toggle label="Join strokes in a row" bind:checked={R.hachures.join} />
+        <p class="hint">
+          Strokes run downhill in rows{stats?.hachureInterval ? ` ${stats.hachureInterval} m apart` : ''}, as on the old Dufour and
+          Siegfried maps. Ground flatter than {R.hachures.minSlope}° stays blank. Often looks best with contours off.
+          {R.hachures.join
+            ? 'Strokes are linked along the row, which shows as a fine edge but needs far fewer pen lifts.'
+            : 'Every stroke is a pen lift; join strokes to cut plot time.'}
+        </p>
       {/if}
     </div>
   </Section>
