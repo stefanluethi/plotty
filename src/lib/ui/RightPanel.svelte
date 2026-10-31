@@ -59,6 +59,11 @@
   };
 
   const tokens = '{coords} {lv95} {scale} {interval} {date}';
+  const FILLS = [
+    { value: 'none', label: 'None' },
+    { value: 'hatch', label: 'Hatched' },
+    { value: 'solid', label: 'Solid' },
+  ];
 
   const landOn = () => S.forest.enabled || S.glaciers.enabled;
   const setLand = (on: boolean) => {
@@ -210,6 +215,15 @@
   <Section title="Lakes and rivers" bind:enabled={waterOn, setWater} meta={engine.featuresLoading && waterOn() ? 'Loading' : ''}>
     <PenPick bind:value={S.water.pen} />
     <Toggle label="Lake shores" bind:checked={S.water.lakes} />
+    {#if S.water.lakes}
+      <Select label="Lake fill" bind:value={S.water.fill} options={FILLS} />
+      {#if S.water.fill === 'hatch'}
+        <Field label="Spacing" bind:value={S.water.spacing} step={0.1} min={0.2} max={10} unit="mm" />
+        <Field label="Angle" bind:value={S.water.angle} step={15} min={-180} max={180} unit="°" />
+      {:else if S.water.fill === 'solid'}
+        <p class="hint">Solid fills large lakes with a lot of ink and plot time.</p>
+      {/if}
+    {/if}
     <Toggle label="Rivers" bind:checked={S.water.rivers} />
     <Toggle label="Streams" bind:checked={S.water.streams} />
     <p class="hint">From swisstopo base map vector data. Streams get busy at scales above 1:50k.</p>
@@ -279,7 +293,11 @@
 
   <Section title="Buildings" open={false} bind:enabled={S.buildings.enabled}>
     <PenPick bind:value={S.buildings.pen} />
-    <Toggle label="Fill solid" bind:checked={S.buildings.fill} />
+    <Select label="Fill" bind:value={S.buildings.fill} options={FILLS} />
+    {#if S.buildings.fill === 'hatch'}
+      <Field label="Spacing" bind:value={S.buildings.spacing} step={0.1} min={0.2} max={5} unit="mm" />
+      <Field label="Angle" bind:value={S.buildings.angle} step={15} min={-180} max={180} unit="°" />
+    {/if}
     <Field label="Smallest" bind:value={S.buildings.minSize} step={0.1} min={0} max={10} unit="mm" />
     <p class="hint">Buildings come in from 1:100k down. Smaller ones than this on paper are left out.</p>
   </Section>

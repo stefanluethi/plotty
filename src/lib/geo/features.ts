@@ -33,6 +33,7 @@ export interface Spot { ele: number; e: number; n: number }
 export interface MapFeatures {
   key: string;
   lakes: number[][];
+  lakePolys: Polygon[]; // lakes and wide rivers as areas, for fills
   rivers: number[][];
   streams: number[][];
   ways: Record<WayKind, number[][]>;
@@ -97,7 +98,7 @@ export async function loadFeatures(
   const x0 = tx(b.minLon), x1 = tx(b.maxLon), y0 = ty(b.maxLat), y1 = ty(b.minLat);
   const ways = Object.fromEntries(WAY_KINDS.map((k) => [k, []])) as unknown as Record<WayKind, number[][]>;
   const out: MapFeatures = {
-    key, lakes: [], rivers: [], streams: [], ways,
+    key, lakes: [], lakePolys: [], rivers: [], streams: [], ways,
     forest: { polys: [], edges: [] }, scrub: { polys: [], edges: [] }, glacierEdges: [], buildings: [],
     boundaries: { country: [], canton: [], district: [], municipality: [] }, parkEdges: [],
     terrain: { land: [], ice: [], scree: [] }, peaks: [], places: [], spots: [],
@@ -151,13 +152,30 @@ function decodeTile(bytes: Uint8Array, z: number, x: number, y: number, out: Map
     }
   };
 
+  /** Polygon rings clipped to the tile, in LV95. */
+  const polygon = (rings: { x: number; y: number }[][], ext: number): Polygon => {
+    const conv = toLv(ext);
+    const outRings: Polygon = [];
+    for (const r of rings) {
+      const c = clipRing(r, ext);
+      if (c.length < 8) continue;
+      const lv: number[] = [];
+      for (let i = 0; i < c.length; i += 2) lv.push(...conv(c[i], c[i + 1]));
+      outRings.push(lv);
+    }
+    return outRings;
+  };
+
   const water = tile.layers.water;
   if (water) {
     for (let i = 0; i < water.length; i++) {
       const f = water.feature(i);
       const cls = f.properties.class;
       if (cls !== 'lake' && cls !== 'river') continue;
-      for (const ring of f.loadGeometry()) emit(ring, water.extent, out.lakes, true);
+      const rings = f.loadGeometry();
+      for (const ring of rings) emit(ring, water.extent, out.lakes, true);
+      const p = polygon(rings, water.extent);
+      if (p.length) out.lakePolys.push(p);
     }
   }
   const ww = tile.layers.waterway;
@@ -180,20 +198,6 @@ function decodeTile(bytes: Uint8Array, z: number, x: number, y: number, out: Map
       for (const line of f.loadGeometry()) emit(line, tr.extent, out.ways[kind], false);
     }
   }
-
-  /** Polygon rings clipped to the tile, in LV95. */
-  const polygon = (rings: { x: number; y: number }[][], ext: number): Polygon => {
-    const conv = toLv(ext);
-    const outRings: Polygon = [];
-    for (const r of rings) {
-      const c = clipRing(r, ext);
-      if (c.length < 8) continue;
-      const lv: number[] = [];
-      for (let i = 0; i < c.length; i += 2) lv.push(...conv(c[i], c[i + 1]));
-      outRings.push(lv);
-    }
-    return outRings;
-  };
 
   const lc = tile.layers.landcover;
   if (lc) {

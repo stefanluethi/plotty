@@ -16,6 +16,8 @@ export interface Track {
   visible: boolean;
 }
 
+export type Fill = 'none' | 'hatch' | 'solid'; // solid = hatching tight enough to close up
+
 export type PaperPreset = 'A5' | 'A4' | 'A3' | 'A2' | '50x70' | 'custom';
 export type DemSource = 'auto' | 'alti3d' | 'regio';
 export type FontName = 'HersheySans1' | 'HersheySerifMed' | 'HersheyScript1' | 'EMSReadability' | 'EMSTech';
@@ -50,7 +52,7 @@ export interface Settings {
     hatch: { enabled: boolean; pen: string; spacing: number; angle: number; tones: number; start: number; minDash: number };
     hachures: { enabled: boolean; pen: string; spacing: number; length: number; passes: number; weight: 'light' | 'slope'; minSlope: number; join: boolean };
   };
-  water: { lakes: boolean; rivers: boolean; streams: boolean; pen: string };
+  water: { lakes: boolean; rivers: boolean; streams: boolean; pen: string; fill: Fill; spacing: number; angle: number };
   roads: { enabled: boolean; pen: string; motorways: boolean; main: boolean; local: boolean; tracks: boolean; mainPasses: number };
   paths: {
     enabled: boolean;
@@ -74,7 +76,7 @@ export interface Settings {
     angle: number; // hatch angle, degrees
   };
   glaciers: { enabled: boolean; pen: string };
-  buildings: { enabled: boolean; pen: string; fill: boolean; minSize: number };
+  buildings: { enabled: boolean; pen: string; fill: Fill; spacing: number; angle: number; minSize: number };
   boundaries: {
     enabled: boolean;
     pen: string;
@@ -186,13 +188,13 @@ export function defaults(): Settings {
       hatch: { enabled: false, pen: 'p1', spacing: 1, angle: 45, tones: 3, start: 15, minDash: 0.8 },
       hachures: { enabled: false, pen: 'p1', spacing: 0.8, length: 1.5, passes: 2, weight: 'light', minSlope: 5, join: false },
     },
-    water: { lakes: true, rivers: true, streams: false, pen: 'p2' },
+    water: { lakes: true, rivers: true, streams: false, pen: 'p2', fill: 'none', spacing: 0.8, angle: 0 },
     roads: { enabled: false, pen: 'p1', motorways: true, main: true, local: true, tracks: false, mainPasses: 2 },
     paths: { enabled: false, pen: 'p1', hiking: true, mountain: true, alpine: true, unmarked: false, dashed: true, dash: 1.2, gap: 0.6 },
     rail: { enabled: false, pen: 'p1', railways: true, lifts: true },
     forest: { enabled: false, pen: 'p4', scrub: false, outline: true, fill: 'none', spacing: 1, angle: -45 },
     glaciers: { enabled: false, pen: 'p2' },
-    buildings: { enabled: false, pen: 'p1', fill: true, minSize: 0.3 },
+    buildings: { enabled: false, pen: 'p1', fill: 'solid', spacing: 0.5, angle: 45, minSize: 0.3 },
     boundaries: {
       enabled: false, pen: 'p1', country: true, canton: true, district: false, municipality: false, parks: false,
       dashed: true, dash: 2, gap: 0.8,
@@ -245,6 +247,8 @@ export function loadSettings(): Settings {
     // Racks saved before the green pen was a default get it once; a pen removed later stays removed.
     if (!(s.rackVersion >= 2) && Array.isArray(s.pens) && !s.pens.some((p: Pen) => p.id === GREEN_PEN.id)) s.pens = [...s.pens, { ...GREEN_PEN }];
     s.rackVersion = d.rackVersion;
+    // buildings.fill used to be a yes/no switch for solid fill.
+    if (typeof s.buildings?.fill === 'boolean') s.buildings.fill = s.buildings.fill ? 'solid' : 'none';
     return deepMerge(d, s) as Settings;
   } catch {
     return d;

@@ -1,4 +1,4 @@
-import type { Settings, Pen } from '../settings';
+import type { Settings, Pen, Fill } from '../settings';
 import { computeLayout, type Layout } from '../layout';
 import type { DemGrid } from '../geo/dem';
 import type { MapFeatures, WayKind } from '../geo/features';
@@ -255,6 +255,9 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
     if (labelClear) out = out.flatMap((l) => splitWhere(densify(l, 0.25), (x, y) => !labelClear!.hit(x, y)));
     return out.map((l) => simplify(l, SIMPLIFY)).filter((l) => lineLength(l) >= minLen);
   };
+  /** Hatch areas; solid is hatching at just under the pen width, so the lines close up. */
+  const fillPolys = (polys: number[][][], fill: Fill, spacing: number, angle: number, p: Pen): Line[] =>
+    fill === 'none' ? [] : hatchPolys(polys, angle, fill === 'solid' ? p.width * 0.85 : Math.max(0.2, spacing), L.map);
   const toPaper = (lvs: number[][]) => lvs.flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
   const dashed = (lines: Line[], on: boolean, dash: number, gap: number) =>
     on ? joinLines(orderLines(lines, 0, 0)).flatMap((l) => dashLine(l, Math.max(0.1, dash), Math.max(0.1, gap))) : lines;
@@ -464,7 +467,7 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
       const bp = pen(s.buildings.pen);
       const polys = features.buildings.map((p) => p.map(toPaperLine)).filter((p) => polySize(p) >= s.buildings.minSize);
       add(bp.id, finish(polys.flat().flatMap((r) => clipPolyline(r, L.map)), 0));
-      if (s.buildings.fill) add(bp.id, finish(hatchPolys(polys, 45, bp.width * 0.9, L.map), 0));
+      add(bp.id, finish(fillPolys(polys, s.buildings.fill, s.buildings.spacing, s.buildings.angle, bp), 0));
     }
 
     // Boundaries
@@ -491,6 +494,10 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
     if (s.water.streams) sets.push(water.streams);
     const lines = sets.flat().flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
     add(wp.id, finish(lines, 0.5));
+    if (s.water.lakes && s.water.fill !== 'none') {
+      const polys = water.lakePolys.map((p) => p.map(toPaperLine));
+      add(wp.id, finish(fillPolys(polys, s.water.fill, s.water.spacing, s.water.angle, wp), 0.2));
+    }
   }
 
   // Frame
