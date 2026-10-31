@@ -22,6 +22,7 @@ export type FontName = 'HersheySans1' | 'HersheySerifMed' | 'HersheyScript1' | '
 
 export interface Settings {
   version: number;
+  rackVersion: number; // bumped when a pen joins the default rack, so saved racks get it once
   pens: Pen[];
   area: { e: number; n: number; scale: number };
   paper: { preset: PaperPreset; w: number; h: number; landscape: boolean; margin: number };
@@ -147,13 +148,17 @@ export const FONTS: { id: FontName; label: string }[] = [
   { id: 'EMSTech', label: 'EMS Tech' },
 ];
 
+const GREEN_PEN: Pen = { id: 'p4', name: 'Forest green', color: '#3a7d44', width: 0.3 };
+
 export function defaults(): Settings {
   return {
     version: 1,
+    rackVersion: 2,
     pens: [
       { id: 'p1', name: 'Fineliner', color: '#1f1d1a', width: 0.3 },
       { id: 'p2', name: 'Lake blue', color: '#2f6fb0', width: 0.4 },
       { id: 'p3', name: 'Track red', color: '#c43a2f', width: 0.5 },
+      { ...GREEN_PEN },
     ],
     area: { e: 2641000, n: 1157500, scale: 50000 },
     paper: { preset: 'A3', w: 297, h: 420, landscape: false, margin: 20 },
@@ -185,7 +190,7 @@ export function defaults(): Settings {
     roads: { enabled: false, pen: 'p1', motorways: true, main: true, local: true, tracks: false, mainPasses: 2 },
     paths: { enabled: false, pen: 'p1', hiking: true, mountain: true, alpine: true, unmarked: false, dashed: true, dash: 1.2, gap: 0.6 },
     rail: { enabled: false, pen: 'p1', railways: true, lifts: true },
-    forest: { enabled: false, pen: 'p1', scrub: false, outline: true, fill: 'none', spacing: 1, angle: -45 },
+    forest: { enabled: false, pen: 'p4', scrub: false, outline: true, fill: 'none', spacing: 1, angle: -45 },
     glaciers: { enabled: false, pen: 'p2' },
     buildings: { enabled: false, pen: 'p1', fill: true, minSize: 0.3 },
     boundaries: {
@@ -237,6 +242,9 @@ export function loadSettings(): Settings {
     if (!raw) return d;
     const s = JSON.parse(raw);
     if (s?.version !== d.version) return d;
+    // Racks saved before the green pen was a default get it once; a pen removed later stays removed.
+    if (!(s.rackVersion >= 2) && Array.isArray(s.pens) && !s.pens.some((p: Pen) => p.id === GREEN_PEN.id)) s.pens = [...s.pens, { ...GREEN_PEN }];
+    s.rackVersion = d.rackVersion;
     return deepMerge(d, s) as Settings;
   } catch {
     return d;
