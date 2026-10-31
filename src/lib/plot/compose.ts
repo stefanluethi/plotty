@@ -8,7 +8,7 @@ import { renderText, textWidth, type StrokeFont } from './font';
 import { orderLines, joinLines, travelStats } from './optimize';
 import { gradients, shadeGrid, tanaka, hatch, hachures, lightVector, type GridMap } from './relief';
 import { hatchPolys, treeSymbols, polySize, groundGrid, splitByGround } from './areas';
-import { placeLabels, RectIndex, type LabelItem } from './labels';
+import { placeLabels, RectIndex, type LabelItem, type Rect } from './labels';
 import { formatCoords, swissNumber } from '../geo/lv95';
 
 export interface PenOutput {
@@ -243,7 +243,15 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
           const [x, y] = P(sp.e, sp.n);
           items.push({ text: String(Math.round(sp.ele)), x, y, size: lb.size * 0.8, marker: 'spot', priority: 9 - sp.ele / 1e5 });
         }
-      const r = placeLabels(items, font, L.map, Math.max(0, lb.gap));
+      // Keep labels off GPS tracks: tracks are drawn on top and don't break for them.
+      const hasTracks = trackLines.some((t) => t.lines.length);
+      const trackR = Math.min(4, knockR || 0.5);
+      const onTrack = (r: Rect) => {
+        for (let y = r.y0; y <= r.y1 + 1e-9; y += 0.5)
+          for (let x = r.x0; x <= r.x1 + 1e-9; x += 0.5) if (knock.near(x, y, trackR)) return true;
+        return false;
+      };
+      const r = placeLabels(items, font, L.map, Math.max(0, lb.gap), hasTracks ? onTrack : undefined);
       add(pen(lb.pen).id, r.lines);
       if (lb.clear && !r.clear.empty) labelClear = r.clear;
     }

@@ -67,7 +67,7 @@ function parsePath(d: string): number[][] {
 export function parseFont(svg: string): StrokeFont {
   const face = /<font-face[^>]*>/.exec(svg)?.[0] ?? '';
   const fontTag = /<font\s[^>]*>/.exec(svg)?.[0] ?? '';
-  const capHeight = parseFloat(attr(face, 'cap-height') ?? '500') || 500;
+  const declaredCap = parseFloat(attr(face, 'cap-height') ?? '500') || 500;
   const defaultAdv = parseFloat(attr(fontTag, 'horiz-adv-x') ?? '378');
   const glyphs: StrokeFont['glyphs'] = {};
   for (const m of svg.matchAll(/<glyph\s[^>]*>/g)) {
@@ -79,6 +79,11 @@ export function parseFont(svg: string): StrokeFont {
     const d = attr(tag, 'd');
     glyphs[ch] = { adv, strokes: d ? parsePath(d) : [] };
   }
+  // The fonts' declared cap-height (500) is well below their real capitals (~660),
+  // which made all text a third larger than asked. Measure it from 'H' instead.
+  let top = 0;
+  for (const st of glyphs['H']?.strokes ?? []) for (let i = 1; i < st.length; i += 2) top = Math.max(top, st[i]);
+  const capHeight = top > 0 ? top : declaredCap;
   return { capHeight, defaultAdv, glyphs };
 }
 
