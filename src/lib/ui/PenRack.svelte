@@ -1,22 +1,52 @@
 <script lang="ts">
   import { S } from '../engine.svelte';
   import { uid } from '../settings';
+  import { tick } from 'svelte';
   import Field from './Field.svelte';
 
   let editing = $state<string | null>(null);
+  let pop = $state<HTMLDivElement>();
+  let nameInput = $state<HTMLInputElement>();
+  let at = $state({ top: 0, left: 0 });
+  const chips: Record<string, HTMLButtonElement> = {};
+
+  // Open under its chip, kept inside the window.
+  function place() {
+    const chip = editing ? chips[editing] : null;
+    if (!chip) return;
+    const r = chip.getBoundingClientRect();
+    const w = Math.min(280, window.innerWidth - 32);
+    at = { top: r.bottom + 6, left: Math.max(16, Math.min(r.left, window.innerWidth - w - 16)) };
+  }
+  async function open(id: string) {
+    editing = id;
+    place();
+    await tick();
+    nameInput?.focus();
+  }
+  function close() {
+    const id = editing;
+    editing = null;
+    if (id) chips[id]?.focus();
+  }
+  function onPointer(e: PointerEvent) {
+    const t = e.target as Node;
+    if (editing && pop && !pop.contains(t) && !Object.values(chips).some((c) => c?.contains(t))) editing = null;
+  }
   const pen = $derived(S.pens.find((p) => p.id === editing));
   const idx = $derived(S.pens.findIndex((p) => p.id === editing));
 
   function add() {
     const p = { id: uid(), name: 'New pen', color: '#3a7d44', width: 0.4 };
     S.pens.push(p);
-    editing = p.id;
+    open(p.id);
   }
   function move(d: number) {
     const i = idx, j = i + d;
     if (j < 0 || j >= S.pens.length) return;
     const [p] = S.pens.splice(i, 1);
     S.pens.splice(j, 0, p);
+    tick().then(place);
   }
   function remove() {
     if (S.pens.length <= 1 || !pen) return;
@@ -32,20 +62,25 @@
     };
     fix(S);
     editing = null;
+    tick().then(() => chips[fallback]?.focus());
   }
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') editing = null;
+    if (e.key === 'Escape' && editing) close();
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpointerdown={onPointer} onresize={place} onscroll={place} />
 
 <div class="rack" role="group" aria-label="Pens in plotting order">
   {#each S.pens as p, i (p.id)}
     <button
       class="pen"
       class:active={editing === p.id}
-      onclick={() => (editing = editing === p.id ? null : p.id)}
+      bind:this={chips[p.id]}
+      onclick={() => (editing === p.id ? close() : open(p.id))}
+      aria-expanded={editing === p.id}
+      aria-controls={editing === p.id ? 'pen-editor' : undefined}
+      aria-label="Pen {i + 1}: {p.name}, {p.width} mm"
       title="Edit pen {i + 1}"
     >
       <span class="order">{i + 1}</span>
@@ -57,14 +92,22 @@
   <button class="add btn ghost" onclick={add} title="Add a pen">+ Pen</button>
 
   {#if pen}
-    <div class="pop" role="dialog" aria-label="Edit pen">
+    <div
+      class="pop"
+      id="pen-editor"
+      role="dialog"
+      aria-labelledby="pen-editor-title"
+      bind:this={pop}
+      style:top="{at.top}px"
+      style:left="{at.left}px"
+    >
       <div class="pop-head">
-        <span class="label">Pen {idx + 1} of {S.pens.length}, plotted in this order</span>
-        <button class="btn ghost x" onclick={() => (editing = null)} aria-label="Close">×</button>
+        <span class="label" id="pen-editor-title">Pen {idx + 1} of {S.pens.length}, plotted in this order</span>
+        <button class="btn ghost x" onclick={close} aria-label="Close">×</button>
       </div>
       <label class="row">
         <span class="label">Name</span>
-        <input class="ctl" bind:value={pen.name} />
+        <input class="ctl" bind:value={pen.name} bind:this={nameInput} maxlength="40" />
       </label>
       <label class="row">
         <span class="label">Color</span>
@@ -94,6 +137,7 @@
     scrollbar-width: none;
   }
   .pen {
+    flex: none;
     display: grid;
     grid-template-columns: auto auto auto auto;
     align-items: center;
@@ -112,7 +156,7 @@
     border-color: var(--lake);
   }
   .order {
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-size: 11px;
     font-stretch: 75%;
   }
@@ -125,6 +169,9 @@
   .name {
     font-weight: 550;
     font-stretch: 88%;
+    max-width: 14ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .width {
     color: var(--ink-2);
@@ -132,17 +179,15 @@
   }
   .pop {
     position: fixed;
-    top: 52px;
-    right: 200px;
     z-index: 50;
-    width: 280px;
+    width: min(280px, calc(100vw - 32px));
     display: grid;
     gap: 8px;
     padding: 12px;
     background: var(--frame);
     border: 1px solid var(--rule);
     border-radius: var(--r-md);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-pop);
   }
   .pop-head {
     display: flex;
@@ -150,7 +195,9 @@
     align-items: center;
   }
   .x {
-    height: 22px;
+    height: 24px;
+    min-width: 24px;
+    justify-content: center;
     padding: 0 6px;
     font-size: 16px;
   }
@@ -182,12 +229,5 @@
   .danger {
     color: var(--danger);
     margin-left: auto;
-  }
-  @media (max-width: 900px) {
-    .pop {
-      right: 16px;
-      left: 16px;
-      width: auto;
-    }
   }
 </style>

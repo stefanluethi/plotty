@@ -2,7 +2,7 @@ import type { Settings } from '../settings';
 import { computeLayout, type Layout } from '../layout';
 import type { DemGrid } from '../geo/dem';
 import type { WaterData } from '../geo/water';
-import { blur, slopeGrid, percentile, niceInterval, traceContours } from './contours';
+import { blur, slopeGrid, niceInterval, traceContours, type ContourLine } from './contours';
 import { clipPolyline, simplify, lineLength, passes, densify, SegmentIndex, splitWhere, rectLine, type Line } from './geom';
 import { renderText, textWidth, type StrokeFont } from './font';
 import { orderLines, joinLines, travelStats } from './optimize';
@@ -43,6 +43,46 @@ function terrain(dem: DemGrid, sigma: number) {
     blurCache = { key, data, slope: slopeGrid(data, dem.w, dem.h, dem.cell) };
   }
   return blurCache;
+}
+
+// Scrubbing pens, thinning, frame or title leaves terrain, area and interval alone,
+// so the two expensive terrain passes below are kept between runs.
+let rangeCache: { key: string; mn: number; mx: number; slopes: Float32Array } | null = null;
+let traceCache: { key: string; lines: ContourLine[] } | null = null;
+
+/** Elevation range over the map area, and a sorted sample of its slopes. */
+function terrainInMap(T: { key: string; data: Float32Array; slope: Float32Array }, key: string, inMap: (i: number) => boolean) {
+  if (rangeCache?.key !== key) {
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < T.data.length; i++) {
+      if (!inMap(i)) continue;
+      const v = T.data[i];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    const step = Math.max(1, Math.floor(T.slope.length / 200000));
+    const sample: number[] = [];
+    for (let i = 0; i < T.slope.length; i += step) if (inMap(i)) sample.push(T.slope[i]);
+    rangeCache = { key, mn, mx, slopes: Float32Array.from(sample).sort() };
+  }
+  return rangeCache;
+}
+
+function traced(T: { key: string; data: Float32Array }, w: number, h: number, interval: number) {
+  const key = `${T.key}|${interval}`;
+  if (traceCache?.key !== key) traceCache = { key, lines: traceContours(T.data, w, h, interval) };
+  return traceCache.lines;
+}
+
+/** Index of the first value above v in an ascending array. */
+function upperBound(a: Float32Array, v: number) {
+  let lo = 0, hi = a.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (a[mid] <= v) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** Chain of nested multiples below the index step, e.g. every=10 → [1, 5]. */
@@ -123,19 +163,14 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
       const x = ox + gx * k, y = oy + gy * k;
       return x >= L.map.x && x <= L.map.x + L.map.w && y >= L.map.y && y <= L.map.y + L.map.h && T.data[i] === T.data[i];
     };
-    let mn = Infinity, mx = -Infinity;
-    for (let i = 0; i < T.data.length; i++) {
-      if (!inMap(i)) continue;
-      const v = T.data[i];
-      if (v < mn) mn = v;
-      if (v > mx) mx = v;
-    }
+    const R = terrainInMap(T, `${T.key}|${ox}|${oy}|${k}|${L.map.x}|${L.map.y}|${L.map.w}|${L.map.h}`, inMap);
+    const { mn, mx, slopes } = R;
     if (mn <= mx) {
       stats.minElev = mn;
       stats.maxElev = mx;
       let interval: number;
       if (c.auto) {
-        const tanP = percentile(T.slope, c.percentile, inMap);
+        const tanP = slopes.length ? slopes[Math.min(slopes.length - 1, Math.floor((c.percentile / 100) * slopes.length))] : 0;
         interval = niceInterval(Math.max(1, c.spacing * cp.width * L.mPerMm * tanP));
       } else interval = Math.max(0.5, c.interval);
       // Never more than ~600 levels.
@@ -144,17 +179,14 @@ export function compose(s: Settings, dem: DemGrid | null, water: WaterData | nul
 
       // Share of terrain where neighbouring base lines would touch.
       const touch = (interval / (cp.width * 1.2)) / L.mPerMm; // slope above which spacing < 1.2 widths
-      let crowd = 0, cnt = 0;
-      const step = Math.max(1, Math.floor(T.slope.length / 200000));
-      for (let i = 0; i < T.slope.length; i += step) if (inMap(i)) { cnt++; if (T.slope[i] > touch) crowd++; }
-      stats.crowded = cnt ? crowd / cnt : 0;
+      stats.crowded = slopes.length ? (slopes.length - upperBound(slopes, touch)) / slopes.length : 0;
 
-      const traced = traceContours(T.data, dem.w, dem.h, interval);
+      const levels = traced(T, dem.w, dem.h, interval);
       const chain = thinChain(c.index.every);
       const minGap = c.thinSpacing * cp.width;
       const regular: Line[] = [];
       const index: Line[] = [];
-      for (const t of traced) {
+      for (const t of levels) {
         const kIdx = Math.round(t.level / interval);
         const isIndex = c.index.enabled && kIdx % c.index.every === 0;
         let lines: Line[];

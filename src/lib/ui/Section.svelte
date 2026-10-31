@@ -83,7 +83,11 @@
   }
   .en {
     position: relative;
-    display: inline-flex;
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-right: -5px;
     cursor: pointer;
   }
   .en input {

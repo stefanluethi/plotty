@@ -16,10 +16,20 @@
   /* Text */
   --ink: #e8eae5;
   --ink-2: #a8b0b4;
-  --ink-3: #78828a;
+  --ink-3: #939da4; /* 4.8:1 on frame; inside controls use --ink-2 */
   /* One accent: Swiss-map lake blue */
   --lake: #8cc7e8;
+  --lake-hover: #a5d4ee;
   --lake-dim: rgba(140, 199, 232, 0.16);
+  --lake-wash: rgba(140, 199, 232, 0.06); /* fill inside the map frame */
+  --on-lake: #10212c; /* text on lake fills */
+  /* Pen-up moves: a magenta no pen ink is likely to be */
+  --travel: #d0428a;
+  /* Things floating over the work */
+  --scrim: rgba(31, 35, 39, 0.8); /* backing for labels over the map or sheet */
+  --dim: rgba(20, 24, 28, 0.45); /* map outside the frame */
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45);
   --warn: #e3b75a;
   --danger: #ec8a7c;
 
@@ -105,10 +115,10 @@ button {
 .btn.primary {
   background: var(--lake);
   border-color: var(--lake);
-  color: #10212c;
+  color: var(--on-lake);
 }
 .btn.primary:hover {
-  background: #a5d4ee;
+  background: var(--lake-hover);
 }
 .btn:disabled {
   opacity: 0.45;
@@ -129,6 +139,19 @@ button {
   font-weight: 500;
   color: var(--ink-2);
   letter-spacing: 0.01em;
+}
+
+/* Read by screen readers, not shown */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .hint {

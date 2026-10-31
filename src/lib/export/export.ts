@@ -1,4 +1,4 @@
-import type { Settings } from '../settings';
+import { paperSize, type Settings } from '../settings';
 import type { ComposeResult } from '../plot/compose';
 
 /** Paper mm → machine mm, honouring placement, rotation and Y direction. */
@@ -20,6 +20,22 @@ export function footprint(s: Settings, paperW: number, paperH: number) {
   return s.machine.rotate ? { w: paperH, h: paperW } : { w: paperW, h: paperH };
 }
 
+/** Whether the sheet, placed as set under Machine, lies fully on the bed. */
+export function sheetOnBed(s: Settings) {
+  const [w, h] = paperSize(s);
+  const fp = footprint(s, w, h);
+  const m = s.machine;
+  return m.x >= 0 && m.y >= 0 && m.x + fp.w <= m.bedW && m.y + fp.h <= m.bedH;
+}
+
+/** A pen as gcode sees it. Falls back if the pen was removed after the plot was drawn. */
+function penOf(s: Settings, id: string) {
+  return s.pens.find((p) => p.id === id) ?? { name: 'Pen', width: 0.3, color: '#000000' };
+}
+
+/** Text that goes into a gcode line: no line breaks, and no ';', which would start a comment. */
+const gcodeText = (t: string) => t.replace(/[\r\n;]+/g, ' ').trim();
+
 const f3 = (v: number) => (Math.round(v * 1000) / 1000).toString();
 
 function fill(tpl: string, s: Settings, extra: Record<string, string> = {}) {
@@ -39,11 +55,11 @@ export function toGcode(s: Settings, r: ComposeResult): string {
   const out: string[] = [];
   out.push(`; plotty topo — ${new Date().toISOString()}`);
   out.push(`; sheet ${r.layout.paperW}x${r.layout.paperH} mm at X${m.x} Y${m.y}${m.rotate ? ' (turned)' : ''}`);
-  out.push(`; pens: ${r.pens.map((p) => s.pens.find((q) => q.id === p.penId)?.name).join(', ')}`);
+  out.push(`; pens: ${r.pens.map((p) => gcodeText(penOf(s, p.penId).name)).join(', ')}`);
   out.push(fill(m.start, s));
   r.pens.forEach((pg, gi) => {
-    const pen = s.pens.find((p) => p.id === pg.penId)!;
-    const label = `${pen.name} ${pen.width} mm`;
+    const pen = penOf(s, pg.penId);
+    const label = gcodeText(`${pen.name} ${pen.width} mm`);
     out.push(`; ---- pen ${gi + 1}: ${label}`);
     if (gi > 0) out.push(fill(m.penChange, s, { pen: label }));
     else out.push(`M117 Pen: ${label}`);
@@ -77,7 +93,7 @@ export function toSvg(s: Settings, r: ComposeResult): string {
     `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">`,
   );
   r.pens.forEach((pg, gi) => {
-    const pen = s.pens.find((p) => p.id === pg.penId)!;
+    const pen = penOf(s, pg.penId);
     parts.push(
       `<g inkscape:groupmode="layer" inkscape:label="${gi + 1} ${escapeXml(pen.name)}" fill="none" stroke="${pen.color}" stroke-width="${pen.width}" stroke-linecap="round" stroke-linejoin="round">`,
     );

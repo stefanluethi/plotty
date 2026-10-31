@@ -16,6 +16,7 @@ class Engine {
   waterLoading = $state(false);
   composing = $state(false);
   error = $state('');
+  warning = $state(''); // problems that don't stop the plot (storage, fonts)
   fonts = $state.raw<Record<string, StrokeFont>>({});
   cursor = $state<[number, number] | null>(null); // machine mm under the pointer
   focusTick = $state(0); // bump to bring the selection into view on the map
@@ -32,6 +33,7 @@ class Engine {
   private saveTimer: any;
   private waterKey = '';
   private demKey = '';
+  private idleWaiters: (() => void)[] = [];
 
   constructor() {
     this.worker.onmessage = (ev) => {
@@ -43,6 +45,12 @@ class Engine {
       } else this.error = `Rendering failed: ${m.message}`;
       this.next();
     };
+    // An uncaught crash in the worker sends no reply, so don't wait for one.
+    this.worker.onerror = (ev) => {
+      ev.preventDefault();
+      this.error = `Rendering failed: ${ev.message || 'the drawing worker crashed'}. Change a setting to retry.`;
+      this.next();
+    };
     this.loadFonts();
   }
 
@@ -52,7 +60,9 @@ class Engine {
     await Promise.all(
       FONTS.map(async (f) => {
         try {
-          const txt = await (await fetch(`${base}fonts/${f.id}.svg`)).text();
+          const r = await fetch(`${base}fonts/${f.id}.svg`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const txt = await r.text();
           out[f.id] = parseFont(txt);
           this.worker.postMessage({ type: 'font', name: f.id, font: out[f.id] });
         } catch (e) {
@@ -61,17 +71,34 @@ class Engine {
       }),
     );
     this.fonts = out;
+    const missing = FONTS.filter((f) => !out[f.id]).map((f) => f.label);
+    if (missing.length) this.warning = `Font${missing.length > 1 ? 's' : ''} ${missing.join(', ')} could not be loaded. Titles in ${missing.length > 1 ? 'them' : 'it'} are left out.`;
     this.compose($state.snapshot(S) as Settings);
   }
 
   save(s: Settings) {
     clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => saveSettings(s), 300);
+    this.saveTimer = setTimeout(() => {
+      const r = saveSettings(s);
+      const prev = this.warning.startsWith('Settings') || this.warning.startsWith('GPS tracks');
+      if (r === 'tracks') this.warning = 'GPS tracks are too large to keep in the browser. Everything else is saved; re-import the tracks after a reload.';
+      else if (r === 'failed') this.warning = 'Settings cannot be saved in this browser (storage is full or blocked).';
+      else if (prev) this.warning = '';
+    }, 300);
   }
+
+  /** Resolves once the plot reflects the latest settings. */
+  idle(): Promise<void> {
+    if (!this.busy && !this.pending && !this.composeQueued) return Promise.resolve();
+    return new Promise((r) => this.idleWaiters.push(r));
+  }
+  private composeQueued = false;
 
   compose(s: Settings) {
     clearTimeout(this.composeTimer);
+    this.composeQueued = true;
     this.composeTimer = setTimeout(() => {
+      this.composeQueued = false;
       this.pending = s;
       if (!this.busy) this.next();
     }, 60);
@@ -81,6 +108,7 @@ class Engine {
     this.busy = false;
     if (!this.pending) {
       this.composing = false;
+      if (!this.composeQueued) for (const r of this.idleWaiters.splice(0)) r();
       return;
     }
     const s = this.pending;
@@ -147,6 +175,7 @@ class Engine {
         const w: WaterData = await loadWater(L.west - pad, L.south - pad, L.east + pad, L.north + pad, L.mPerMm, ac.signal);
         if (ac.signal.aborted) return;
         this.worker.postMessage({ type: 'water', water: w });
+        if (this.error.startsWith('Lakes')) this.error = '';
         this.compose($state.snapshot(S) as Settings);
       } catch (e: any) {
         if (e?.name === 'AbortError' || ac.signal.aborted) return;

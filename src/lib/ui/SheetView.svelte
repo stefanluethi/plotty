@@ -133,16 +133,6 @@
       ctx.lineTo(sx(m.bedW), Math.round(sy(Y)) + 0.5);
       ctx.stroke();
     }
-    // Rulers
-    const step = niceStep(k);
-    ctx.fillStyle = col('--ink-3');
-    ctx.font = `500 11px ${col('--font')}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (let X = 0; X <= m.bedW; X += step) ctx.fillText(String(X), sx(X), sy(0) + 6);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    for (let Y = step; Y <= m.bedH; Y += step) ctx.fillText(String(Y), sx(0) - 6, sy(Y));
     // Origin
     ctx.strokeStyle = col('--lake');
     ctx.lineWidth = 1.5;
@@ -189,13 +179,42 @@
     }
     ctx.globalAlpha = 1;
     if (S.view.travel && paths.travel) {
-      ctx.strokeStyle = '#d0428a';
+      ctx.strokeStyle = col('--travel');
       ctx.lineWidth = 1 / k;
       ctx.setLineDash([4 / k, 3 / k]);
       ctx.stroke(paths.travel);
       ctx.setLineDash([]);
     }
     ctx.restore();
+
+    // Rulers last, so they stay on top once the sheet fills the view. When the bed edge
+    // is scrolled out of view they stay on the window edge, with a halo so they read
+    // over grid and paper alike.
+    const step = niceStep(k);
+    const toolbar = 48; // floating tools along the top
+    const yRight = Math.max(sx(0) - 6, 34);
+    const xTop = Math.min(sy(0) + 6, size.h - 18);
+    ctx.font = `500 11px ${col('--font')}`;
+    ctx.fillStyle = col('--ink-3');
+    ctx.strokeStyle = col('--well');
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    const label = (t: string, x: number, y: number) => {
+      ctx.strokeText(t, x, y);
+      ctx.fillText(t, x, y);
+    };
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let X = 0; X <= m.bedW; X += step) {
+      const x = sx(X);
+      if (x > yRight + 12 || sx(0) - 6 >= 34) label(String(X), x, xTop);
+    }
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let Y = step; Y <= m.bedH; Y += step) {
+      const y = sy(Y);
+      if (y > toolbar && y < xTop - 8) label(String(Y), yRight, y);
+    }
   }
 
   // Pan and zoom
@@ -248,6 +267,7 @@
     onpointerdown={down}
     onpointermove={move}
     onpointerup={() => (pan = null)}
+    onpointercancel={() => (pan = null)}
     onpointerleave={() => (engine.cursor = null)}
     ondblclick={() => fitTo('sheet')}
     onkeydown={key}
@@ -258,10 +278,9 @@
   <div class="tools">
     <button class="btn" class:on={auto === 'sheet'} onclick={() => fitTo('sheet')}>Fit sheet</button>
     <button class="btn" class:on={auto === 'bed'} onclick={() => fitTo('bed')}>Fit bed</button>
-    <label class="btn check">
-      <input type="checkbox" bind:checked={S.view.travel} />
-      Pen-up moves
-    </label>
+    <button class="btn" class:on={S.view.travel} aria-pressed={S.view.travel} onclick={() => (S.view.travel = !S.view.travel)}
+      >Pen-up moves</button
+    >
   </div>
 
   {#if loading}
@@ -288,6 +307,12 @@
   canvas:active {
     cursor: grabbing;
   }
+  /* Stacked layout: a vertical swipe scrolls the page instead of being trapped by the sheet. */
+  @media (max-width: 900px) {
+    canvas {
+      touch-action: pan-y;
+    }
+  }
   canvas:focus-visible {
     outline: 2px solid var(--lake);
     outline-offset: -2px;
@@ -309,13 +334,6 @@
     border-color: var(--lake);
     color: var(--lake);
   }
-  .check {
-    cursor: pointer;
-  }
-  .check input {
-    accent-color: var(--lake);
-    margin: 0;
-  }
   .note {
     position: absolute;
     left: 50%;
@@ -329,7 +347,7 @@
     color: var(--ink);
     display: grid;
     gap: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-float);
   }
   .bar {
     display: block;

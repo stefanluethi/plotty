@@ -28,6 +28,8 @@
     if (!editing) text = Number.isFinite(value) ? value.toFixed(dec) : '';
   });
 
+  // How the unit is read out after the label, e.g. "Line width, mm".
+  const spoken = $derived(({ '×': 'times', '%': 'percent', 'm': 'metres' } as Record<string, string>)[unit] ?? unit);
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   function commit() {
     const v = parseFloat(text.replace(',', '.').replace(/[’']/g, ''));
@@ -63,7 +65,7 @@
     onpointerdown={down}
     onpointermove={move}
     onpointerup={() => (scrub = null)}
-    title="Drag sideways to adjust">{label}</label
+    title="Drag sideways to adjust">{label}{#if unit}<span class="sr-only">, {spoken}</span>{/if}</label
   >
   <div class="box ctl">
     <input
@@ -74,7 +76,7 @@
       onblur={commit}
       onkeydown={key}
     />
-    {#if unit}<span class="unit">{unit}</span>{/if}
+    {#if unit}<span class="unit" aria-hidden="true">{unit}</span>{/if}
   </div>
 </div>
 
@@ -109,7 +111,7 @@
   }
   .unit {
     white-space: nowrap;
-    color: var(--ink-3);
+    color: var(--ink-2);
     padding-left: 4px;
     font-size: 12px;
   }

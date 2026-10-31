@@ -4,6 +4,7 @@
   import { computeLayout } from '../layout';
   import { toLV95, swissNumber } from '../geo/lv95';
   import { resolveSource, expectedRes } from '../geo/dem';
+  import { sheetOnBed } from '../export/export';
   import Section from './Section.svelte';
   import Field from './Field.svelte';
   import Select from './Select.svelte';
@@ -15,18 +16,28 @@
   let q = $state('');
   let results = $state<{ label: string; detail: string; e: number; n: number }[]>([]);
   let searchErr = $state('');
+  let searching = $state(false);
   let timer: any;
+  let searchAbort: AbortController | null = null;
   function search() {
     clearTimeout(timer);
+    searchAbort?.abort();
     const text = q.trim();
     if (text.length < 2) {
       results = [];
+      searchErr = '';
+      searching = false;
       return;
     }
     timer = setTimeout(async () => {
+      // A slower answer to an older query must not replace a newer one.
+      const ac = (searchAbort = new AbortController());
+      searching = true;
       try {
         const url = `https://api3.geo.admin.ch/rest/services/api/SearchServer?searchText=${encodeURIComponent(text)}&type=locations&limit=8`;
-        const j = await (await fetch(url)).json();
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const j = await res.json();
         results = (j.results ?? []).map((r: any) => {
           const [e, n] = toLV95(r.attrs.lon, r.attrs.lat);
           const html = String(r.attrs.label);
@@ -37,11 +48,28 @@
           return { label: name, detail: [kind, where].filter(Boolean).join(', '), e, n };
         });
         searchErr = results.length ? '' : 'No place found with that name.';
-      } catch {
+      } catch (e: any) {
+        if (ac.signal.aborted) return;
+        results = [];
         searchErr = 'Search is unavailable right now. Enter coordinates instead.';
+      } finally {
+        if (searchAbort === ac) searching = false;
       }
     }, 250);
   }
+  function searchKey(e: KeyboardEvent) {
+    if (e.key === 'Enter' && results.length) {
+      e.preventDefault();
+      pick(results[0]);
+    } else if (e.key === 'Escape' && (results.length || q)) {
+      e.stopPropagation();
+      q = '';
+      search();
+    }
+  }
+  const searchStatus = $derived(
+    searching ? 'Searching' : results.length ? `${results.length} place${results.length > 1 ? 's' : ''} found. Enter picks the first.` : searchErr,
+  );
   function pick(r: { label: string; e: number; n: number }) {
     S.area.e = Math.round(r.e);
     S.area.n = Math.round(r.n);
@@ -70,11 +98,7 @@
     return `${src}, ${res >= 100 ? Math.round(res) : res} m grid${S.dem.source === 'alti3d' && src !== 'swissALTI3D' ? ' (area too large for swissALTI3D)' : ''}`;
   });
 
-  const sheetFits = $derived.by(() => {
-    const [w, h] = paperSize(S);
-    const fw = S.machine.rotate ? h : w, fh = S.machine.rotate ? w : h;
-    return S.machine.x >= 0 && S.machine.y >= 0 && S.machine.x + fw <= S.machine.bedW && S.machine.y + fh <= S.machine.bedH;
-  });
+  const sheetFits = $derived(sheetOnBed(S));
 </script>
 
 <aside class="panel" aria-label="Area, sheet and machine">
@@ -86,16 +110,19 @@
         placeholder="Search a place, peak or pass"
         bind:value={q}
         oninput={search}
+        onkeydown={searchKey}
         aria-label="Search a place"
+        aria-describedby="search-status"
       />
+      <span id="search-status" class="sr-only" role="status">{q.trim().length >= 2 ? searchStatus : ''}</span>
       {#if results.length}
-        <ul class="results">
+        <ul class="results" aria-label="Places">
           {#each results as r (r.label + r.e)}
             <li><button onclick={() => pick(r)}>{r.label}<span class="detail">{r.detail}</span></button></li>
           {/each}
         </ul>
       {:else if searchErr && q.trim().length >= 2}
-        <p class="hint">{searchErr}</p>
+        <p class="hint" aria-hidden="true">{searchErr}</p>
       {/if}
     </div>
     <Field label="East" bind:value={S.area.e} step={100} unit="m" wide />
@@ -205,7 +232,7 @@
   }
   .detail {
     display: block;
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-size: 11.5px;
   }
   .results button:hover {

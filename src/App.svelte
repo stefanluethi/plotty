@@ -1,17 +1,28 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { S, engine } from './lib/engine.svelte';
-  import { toGcode, toSvg, download } from './lib/export/export';
+  import { toGcode, toSvg, download, sheetOnBed } from './lib/export/export';
   import type { Settings } from './lib/settings';
   import Wordmark from './lib/ui/Wordmark.svelte';
   import PenRack from './lib/ui/PenRack.svelte';
   import LeftPanel from './lib/ui/LeftPanel.svelte';
   import RightPanel from './lib/ui/RightPanel.svelte';
-  import MapView from './lib/ui/MapView.svelte';
   import SheetView from './lib/ui/SheetView.svelte';
   import StatusBar from './lib/ui/StatusBar.svelte';
 
   let right: RightPanel;
+
+  // MapLibre is about half the app's code; fetch it only once the map is wanted.
+  let mapView: Promise<typeof import('./lib/ui/MapView.svelte')> | null = $state(null);
+  const loadMap = () => (mapView ??= import('./lib/ui/MapView.svelte'));
+  // Hovering the Map button only fetches the code; the map itself starts on first show and then stays.
+  let mapMounted = $state(false);
+  $effect(() => {
+    if (S.view.mode === 'map') {
+      loadMap();
+      mapMounted = true;
+    }
+  });
 
   // Persist, fetch data and redraw whenever settings change.
   $effect(() => {
@@ -33,11 +44,19 @@
       .replace(/^-|-$/g, '') || 'topo',
   );
 
-  function exportGcode() {
-    if (engine.result) download(`${fileBase}.gcode`, toGcode(S, engine.result), 'text/plain');
-  }
-  function exportSvg() {
-    if (engine.result) download(`${fileBase}.svg`, toSvg(S, engine.result), 'image/svg+xml');
+  // Export what the settings say now, not a plot that is still being redrawn.
+  let exporting = $state(false);
+  async function exportAs(kind: 'gcode' | 'svg') {
+    exporting = true;
+    try {
+      await engine.idle();
+      const r = engine.result;
+      if (!r || !r.pens.length) return;
+      if (kind === 'gcode') download(`${fileBase}.gcode`, toGcode(S, r), 'text/plain');
+      else download(`${fileBase}.svg`, toSvg(S, r), 'image/svg+xml');
+    } finally {
+      exporting = false;
+    }
   }
 
   let dragging = $state(false);
@@ -49,12 +68,14 @@
 
   function onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
-    if (t.closest('input, textarea, select, [contenteditable]')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (t.closest('input, textarea, select, [contenteditable], [role="dialog"]')) return;
     if (e.key === 'm') S.view.mode = 'map';
-    else if (e.key === 's' && !e.ctrlKey && !e.metaKey) S.view.mode = 'sheet';
+    else if (e.key === 's') S.view.mode = 'sheet';
   }
 
-  const ready = $derived(!!engine.result && engine.result.pens.length > 0);
+  const ready = $derived(!!engine.result && engine.result.pens.length > 0 && !exporting);
+  const onBed = $derived(sheetOnBed(S));
 </script>
 
 <svelte:window
@@ -77,27 +98,46 @@
       <Wordmark />
       <span class="tool">Topo</span>
     </div>
-    <div class="views" role="tablist" aria-label="View">
-      <button role="tab" aria-selected={S.view.mode === 'map'} class:on={S.view.mode === 'map'} onclick={() => (S.view.mode = 'map')}
-        >Map <kbd>M</kbd></button
+    <div class="views" role="group" aria-label="View">
+      <button
+        aria-pressed={S.view.mode === 'map'}
+        aria-keyshortcuts="M"
+        class:on={S.view.mode === 'map'}
+        onpointerenter={loadMap}
+        onfocus={loadMap}
+        onclick={() => (S.view.mode = 'map')}>Map <kbd aria-hidden="true">M</kbd></button
       >
       <button
-        role="tab"
-        aria-selected={S.view.mode === 'sheet'}
+        aria-pressed={S.view.mode === 'sheet'}
+        aria-keyshortcuts="S"
         class:on={S.view.mode === 'sheet'}
-        onclick={() => (S.view.mode = 'sheet')}>Sheet <kbd>S</kbd></button
+        onclick={() => (S.view.mode = 'sheet')}>Sheet <kbd aria-hidden="true">S</kbd></button
       >
     </div>
     <PenRack />
     <div class="export">
-      <button class="btn" onclick={exportSvg} disabled={!ready}>Download SVG</button>
-      <button class="btn primary" onclick={exportGcode} disabled={!ready}>Download gcode</button>
+      <button class="btn" onclick={() => exportAs('svg')} disabled={!ready}>Download SVG</button>
+      <button
+        class="btn primary"
+        onclick={() => exportAs('gcode')}
+        disabled={!ready || !onBed}
+        aria-describedby={onBed ? undefined : 'off-bed'}
+        title={onBed ? undefined : 'The sheet extends past the bed. Fix its position under Machine first.'}>Download gcode</button
+      >
     </div>
   </header>
 
   <LeftPanel />
   <main class="center">
-    <div class="pane" class:hidden={S.view.mode !== 'map'}><MapView visible={S.view.mode === 'map'} /></div>
+    <div class="pane" class:hidden={S.view.mode !== 'map'}>
+      {#if mapMounted}
+        {#await mapView! then { default: MapView }}
+          <MapView visible={S.view.mode === 'map'} />
+        {:catch}
+          <p class="map-failed">The map could not be loaded. Check the connection and reload the page.</p>
+        {/await}
+      {/if}
+    </div>
     <div class="pane" class:hidden={S.view.mode !== 'sheet'}><SheetView visible={S.view.mode === 'sheet'} /></div>
     {#if dragging}
       <div class="drop">Drop GPX files to add them as tracks</div>
@@ -210,12 +250,17 @@
     visibility: hidden !important;
     pointer-events: none;
   }
+  .map-failed {
+    margin: 0;
+    padding: 24px;
+    color: var(--danger);
+  }
   .drop {
     position: absolute;
     inset: 12px;
     border: 2px dashed var(--lake);
     border-radius: var(--r-md);
-    background: rgba(31, 35, 39, 0.75);
+    background: var(--scrim);
     display: grid;
     place-items: center;
     font-size: 15px;
@@ -232,14 +277,18 @@
     }
   }
   @media (max-width: 900px) {
-    :global(html, body) {
-      overflow: auto;
+    /* Let the window scroll, not body (fixed popovers follow window scrolling). */
+    :global(html),
+    :global(body),
+    :global(#app) {
+      height: auto;
+      overflow: visible;
     }
     .app {
       height: auto;
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto 70vh auto auto auto;
-      grid-template-areas: 'top' 'center' 'right' 'left' 'status';
+      grid-template-areas: 'top' 'center' 'left' 'right' 'status';
     }
     .top {
       flex-wrap: wrap;
@@ -249,7 +298,9 @@
     .top :global(.rack) {
       order: 5;
       flex-basis: 100%;
+      flex-wrap: wrap;
       justify-content: flex-start;
+      overflow: visible;
     }
     .export {
       border: 0;

@@ -159,11 +159,20 @@ export function loadSettings(): Settings {
   }
 }
 
-export function saveSettings(s: Settings) {
+/** 'tracks': everything but the GPS tracks was saved, they are too big for browser storage. */
+export function saveSettings(s: Settings): 'ok' | 'tracks' | 'failed' {
   try {
     localStorage.setItem(KEY, JSON.stringify(s));
+    return 'ok';
   } catch {
-    // Storage full or blocked: settings simply won't persist.
+    // Storage full or blocked. Large tracks are the usual cause, so keep the rest.
+    if (!s.tracks.length) return 'failed';
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ ...s, tracks: [] }));
+      return 'tracks';
+    } catch {
+      return 'failed';
+    }
   }
 }
 

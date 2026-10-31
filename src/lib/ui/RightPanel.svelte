@@ -133,9 +133,9 @@
         <div class="track-head">
           <input class="ctl name" bind:value={t.name} aria-label="Track name" />
           <label class="vis" title={t.visible ? 'Hide track' : 'Show track'}>
-            <input type="checkbox" bind:checked={t.visible} aria-label="Draw {t.name}" />
+            <input type="checkbox" bind:checked={t.visible} aria-label="Draw {t.name || 'track'}" />
           </label>
-          <button class="btn ghost rm" onclick={() => S.tracks.splice(S.tracks.indexOf(t), 1)} aria-label="Remove {t.name}"
+          <button class="btn ghost rm" onclick={() => S.tracks.splice(S.tracks.indexOf(t), 1)} aria-label="Remove {t.name || 'track'}"
             >×</button
           >
         </div>
@@ -216,7 +216,7 @@
     display: grid;
     gap: 6px;
     padding: 8px;
-    background: rgba(0, 0, 0, 0.12);
+    background: var(--well);
     border: 1px solid var(--rule-soft);
     border-radius: var(--r-sm);
   }
@@ -228,11 +228,22 @@
   .name {
     flex: 1;
   }
+  .vis {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+  }
   .vis input {
     accent-color: var(--lake);
+    margin: 0;
+    cursor: pointer;
   }
   .rm {
     height: 24px;
+    min-width: 24px;
+    justify-content: center;
     padding: 0 7px;
     font-size: 15px;
   }

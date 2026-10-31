@@ -54,15 +54,6 @@ export function slopeGrid(data: Float32Array, w: number, h: number, cell: number
   return s;
 }
 
-export function percentile(values: Float32Array, p: number, mask?: (i: number) => boolean): number {
-  const step = Math.max(1, Math.floor(values.length / 200000));
-  const arr: number[] = [];
-  for (let i = 0; i < values.length; i += step) if (!mask || mask(i)) arr.push(values[i]);
-  if (!arr.length) return 0;
-  arr.sort((a, b) => a - b);
-  return arr[Math.min(arr.length - 1, Math.floor((p / 100) * arr.length))];
-}
-
 const NICE = [1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
 export function niceInterval(v: number) {
   for (const n of NICE) if (n >= v - 1e-9) return n;

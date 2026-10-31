@@ -184,7 +184,7 @@
           <path d={frame.d} fill="black" />
         </mask>
       </defs>
-      <rect width="100%" height="100%" fill="rgba(20,24,28,0.45)" mask="url(#outside)" />
+      <rect class="dim" width="100%" height="100%" mask="url(#outside)" />
       {#each tracks as t (t.id)}
         <path d={t.d} fill="none" stroke={t.color} stroke-width="2.5" stroke-linejoin="round" />
       {/each}
@@ -246,7 +246,7 @@
     filter: brightness(0.82) saturate(0.85);
   }
   .wrap :global(.maplibregl-ctrl-attrib) {
-    background: rgba(31, 35, 39, 0.8);
+    background: var(--scrim);
     color: var(--ink-2);
   }
   .wrap :global(.maplibregl-ctrl-attrib a) {
@@ -259,8 +259,11 @@
     height: 100%;
     pointer-events: none;
   }
+  .dim {
+    fill: var(--dim);
+  }
   .frame {
-    fill: rgba(140, 199, 232, 0.06);
+    fill: var(--lake-wash);
     stroke: var(--lake);
     stroke-width: 1.5;
     pointer-events: all;
@@ -280,7 +283,7 @@
     font-size: 12px;
     font-weight: 560;
     paint-order: stroke;
-    stroke: rgba(20, 24, 28, 0.85);
+    stroke: var(--well);
     stroke-width: 3px;
   }
   .tools {
@@ -317,7 +320,7 @@
     margin: 0;
     color: var(--ink-2);
     font-size: 12px;
-    background: rgba(31, 35, 39, 0.8);
+    background: var(--scrim);
     padding: 3px 8px;
     border-radius: var(--r-sm);
     pointer-events: none;
