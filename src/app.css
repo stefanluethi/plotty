@@ -1,0 +1,145 @@
+@import '@fontsource-variable/archivo/wdth.css';
+
+:root {
+  /* Machine frame: anodized aluminium */
+  --frame: #2b3035;
+  --frame-2: #343a40; /* inputs, raised controls */
+  --frame-3: #3e454c; /* hover */
+  --rule: #444c54;
+  --rule-soft: #383f45;
+  /* Workspace under the bed */
+  --well: #1f2327;
+  --bed: #2e3439;
+  --bed-grid: #384047;
+  --bed-grid-major: #48525b;
+  --paper: #fbfbf8;
+  /* Text */
+  --ink: #e8eae5;
+  --ink-2: #a8b0b4;
+  --ink-3: #78828a;
+  /* One accent: Swiss-map lake blue */
+  --lake: #8cc7e8;
+  --lake-dim: rgba(140, 199, 232, 0.16);
+  --warn: #e3b75a;
+  --danger: #ec8a7c;
+
+  --font: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
+  --r-sm: 3px;
+  --r-md: 6px;
+
+  color-scheme: dark;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--well);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--lake);
+  outline-offset: 1px;
+}
+
+/* Shared control look */
+.ctl {
+  background: var(--frame-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-sm);
+  height: 26px;
+  padding: 0 7px;
+  min-width: 0;
+}
+.ctl:hover {
+  border-color: var(--rule);
+}
+.ctl:focus-visible {
+  outline: none;
+  border-color: var(--lake);
+  box-shadow: 0 0 0 1px var(--lake);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  background: var(--frame-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  font-weight: 550;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--frame-3);
+}
+.btn.primary {
+  background: var(--lake);
+  border-color: var(--lake);
+  color: #10212c;
+}
+.btn.primary:hover {
+  background: #a5d4ee;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-2);
+}
+.btn.ghost:hover {
+  color: var(--ink);
+  background: var(--frame-2);
+}
+
+.label {
+  font-stretch: 78%;
+  font-weight: 500;
+  color: var(--ink-2);
+  letter-spacing: 0.01em;
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
