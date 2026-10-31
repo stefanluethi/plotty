@@ -21,6 +21,10 @@ npm run dev
 
 Then open http://localhost:5173. Settings are saved in the browser.
 
+### Deploy
+
+`.github/workflows/pages.yml` builds the site and publishes it to GitHub Pages on every push to `main` (or `master`). It can also be started by hand from the Actions tab. One-time setup: in the repository on GitHub, open **Settings → Pages** and set **Source** to **GitHub Actions**. The site then appears at `https://<user>.github.io/<repo>/`.
+
 ### Data
 
 - Elevation: [swissALTI3D](https://www.swisstopo.admin.ch/en/height-model-swissalti3d) (2 m, used for small areas) and swissALTIRegio (10 m, used for large ones), streamed as cloud-optimised GeoTIFFs from data.geo.admin.ch.

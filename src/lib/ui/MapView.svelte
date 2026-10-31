@@ -72,7 +72,11 @@
   }
 
   // MapLibre looks for its worker next to its own module, which doesn't survive bundling.
-  maplibregl.setWorkerUrl(workerUrl);
+  {
+    const u = new URL(workerUrl, location.href);
+    u.searchParams.set('v', maplibregl.getVersion());
+    maplibregl.setWorkerUrl(u.href);
+  }
 
   onMount(() => {
     map = new maplibregl.Map({
