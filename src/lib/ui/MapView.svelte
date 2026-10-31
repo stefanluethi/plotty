@@ -168,6 +168,21 @@
     drag = null;
   }
 
+  // The frame sits above the map to be draggable, so it would swallow the scroll
+  // wheel. Hand wheel events on to the map so zooming works over the selection too.
+  function forwardWheel(ev: WheelEvent) {
+    if (!map) return;
+    ev.preventDefault();
+    map.getCanvas().dispatchEvent(
+      new WheelEvent('wheel', {
+        deltaX: ev.deltaX, deltaY: ev.deltaY, deltaZ: ev.deltaZ, deltaMode: ev.deltaMode,
+        clientX: ev.clientX, clientY: ev.clientY, screenX: ev.screenX, screenY: ev.screenY,
+        ctrlKey: ev.ctrlKey, shiftKey: ev.shiftKey, altKey: ev.altKey, metaKey: ev.metaKey,
+        bubbles: true, cancelable: true,
+      }),
+    );
+  }
+
   const sizeLabel = $derived(
     `1:${swissNumber(S.area.scale)}, ${((L.east - L.west) / 1000).toFixed(1)} × ${((L.north - L.south) / 1000).toFixed(1)} km`,
   );
@@ -194,6 +209,7 @@
         onpointerdown={(e) => start(e, 'move')}
         onpointermove={moveDrag}
         onpointerup={end}
+        onwheel={forwardWheel}
         role="presentation"
       />
       {#each frame.c as [x, y], i (i)}
@@ -206,6 +222,7 @@
           onpointerdown={(e) => start(e, 'scale')}
           onpointermove={moveDrag}
           onpointerup={end}
+          onwheel={forwardWheel}
           role="presentation"
         />
       {/each}
