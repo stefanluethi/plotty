@@ -18,6 +18,17 @@ export interface Track {
 
 export type Fill = 'none' | 'hatch' | 'solid'; // solid = hatching tight enough to close up
 
+export type HatchKind = 'lines' | 'cross' | 'dashes' | 'waves' | 'zigzag';
+/** How hatched areas are drawn. Only the fields of the chosen kind are used. */
+export interface HatchPattern {
+  kind: HatchKind;
+  cross: number; // cross: angle of the second set of lines to the first, degrees
+  dash: number; // dashes: dash length, mm
+  gap: number; // dashes: gap between dashes, mm
+  height: number; // waves, zigzag: peak to trough, mm
+  length: number; // waves, zigzag: one full wave, mm
+}
+
 export type PaperPreset = 'A5' | 'A4' | 'A3' | 'A2' | '50x70' | 'custom';
 export type DemSource = 'auto' | 'alti3d' | 'regio';
 export type FontName = 'HersheySans1' | 'HersheySerifMed' | 'HersheyScript1' | 'EMSReadability' | 'EMSTech';
@@ -52,7 +63,7 @@ export interface Settings {
     hatch: { enabled: boolean; pen: string; spacing: number; angle: number; tones: number; start: number; minDash: number };
     hachures: { enabled: boolean; pen: string; spacing: number; length: number; passes: number; weight: 'light' | 'slope'; minSlope: number; join: boolean };
   };
-  water: { lakes: boolean; rivers: boolean; streams: boolean; pen: string; fill: Fill; spacing: number; angle: number };
+  water: { lakes: boolean; rivers: boolean; streams: boolean; pen: string; fill: Fill; spacing: number; angle: number; pattern: HatchPattern };
   roads: { enabled: boolean; pen: string; motorways: boolean; main: boolean; local: boolean; tracks: boolean; mainPasses: number };
   paths: {
     enabled: boolean;
@@ -74,9 +85,10 @@ export interface Settings {
     fill: 'none' | 'hatch' | 'trees';
     spacing: number; // mm between hatch lines or tree symbols
     angle: number; // hatch angle, degrees
+    pattern: HatchPattern;
   };
   glaciers: { enabled: boolean; pen: string };
-  buildings: { enabled: boolean; pen: string; fill: Fill; spacing: number; angle: number; minSize: number };
+  buildings: { enabled: boolean; pen: string; fill: Fill; spacing: number; angle: number; pattern: HatchPattern; minSize: number };
   boundaries: {
     enabled: boolean;
     pen: string;
@@ -150,6 +162,8 @@ export const FONTS: { id: FontName; label: string }[] = [
   { id: 'EMSTech', label: 'EMS Tech' },
 ];
 
+export const HATCH_LINES: HatchPattern = { kind: 'lines', cross: 90, dash: 1, gap: 0.5, height: 0.4, length: 2 };
+
 const GREEN_PEN: Pen = { id: 'p4', name: 'Forest green', color: '#3a7d44', width: 0.3 };
 
 export function defaults(): Settings {
@@ -188,13 +202,13 @@ export function defaults(): Settings {
       hatch: { enabled: false, pen: 'p1', spacing: 1, angle: 45, tones: 3, start: 15, minDash: 0.8 },
       hachures: { enabled: false, pen: 'p1', spacing: 0.8, length: 1.5, passes: 2, weight: 'light', minSlope: 5, join: false },
     },
-    water: { lakes: true, rivers: true, streams: false, pen: 'p2', fill: 'none', spacing: 0.8, angle: 0 },
+    water: { lakes: true, rivers: true, streams: false, pen: 'p2', fill: 'none', spacing: 0.8, angle: 0, pattern: { ...HATCH_LINES } },
     roads: { enabled: false, pen: 'p1', motorways: true, main: true, local: true, tracks: false, mainPasses: 2 },
     paths: { enabled: false, pen: 'p1', hiking: true, mountain: true, alpine: true, unmarked: false, dashed: true, dash: 1.2, gap: 0.6 },
     rail: { enabled: false, pen: 'p1', railways: true, lifts: true },
-    forest: { enabled: false, pen: 'p4', scrub: false, outline: true, fill: 'none', spacing: 1, angle: -45 },
+    forest: { enabled: false, pen: 'p4', scrub: false, outline: true, fill: 'none', spacing: 1, angle: -45, pattern: { ...HATCH_LINES } },
     glaciers: { enabled: false, pen: 'p2' },
-    buildings: { enabled: false, pen: 'p1', fill: 'solid', spacing: 0.5, angle: 45, minSize: 0.3 },
+    buildings: { enabled: false, pen: 'p1', fill: 'solid', spacing: 0.5, angle: 45, pattern: { ...HATCH_LINES }, minSize: 0.3 },
     boundaries: {
       enabled: false, pen: 'p1', country: true, canton: true, district: false, municipality: false, parks: false,
       dashed: true, dash: 2, gap: 0.8,

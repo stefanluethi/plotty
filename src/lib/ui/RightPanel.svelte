@@ -8,6 +8,7 @@
   import Select from './Select.svelte';
   import Toggle from './Toggle.svelte';
   import PenPick from './PenPick.svelte';
+  import HatchFields from './HatchFields.svelte';
 
   const stats = $derived(engine.result?.stats);
   const contourPen = $derived(S.pens.find((p) => p.id === S.contours.pen) ?? S.pens[0]);
@@ -218,8 +219,7 @@
     {#if S.water.lakes}
       <Select label="Lake fill" bind:value={S.water.fill} options={FILLS} />
       {#if S.water.fill === 'hatch'}
-        <Field label="Spacing" bind:value={S.water.spacing} step={0.1} min={0.2} max={10} unit="mm" />
-        <Field label="Angle" bind:value={S.water.angle} step={15} min={-180} max={180} unit="°" />
+        <HatchFields bind:pattern={S.water.pattern} bind:spacing={S.water.spacing} bind:angle={S.water.angle} />
       {:else if S.water.fill === 'solid'}
         <p class="hint">Solid fills large lakes with a lot of ink and plot time.</p>
       {/if}
@@ -275,13 +275,12 @@
             { value: 'trees', label: 'Tree symbols' },
           ]}
         />
-        {#if S.forest.fill !== 'none'}
-          <Field label="Spacing" bind:value={S.forest.spacing} step={0.1} min={0.3} max={10} unit="mm" />
-        {/if}
         {#if S.forest.fill === 'hatch'}
-          <Field label="Angle" bind:value={S.forest.angle} step={15} min={-180} max={180} unit="°" />
+          <HatchFields bind:pattern={S.forest.pattern} bind:spacing={S.forest.spacing} bind:angle={S.forest.angle} minSpacing={0.3} />
+        {:else if S.forest.fill === 'trees'}
+          <Field label="Spacing" bind:value={S.forest.spacing} step={0.1} min={0.3} max={10} unit="mm" />
+          <p class="hint">Every tree symbol is a pen lift.</p>
         {/if}
-        {#if S.forest.fill === 'trees'}<p class="hint">Every tree symbol is a pen lift.</p>{/if}
         <Toggle label="Also scrub and small woods" bind:checked={S.forest.scrub} />
       {/if}
     </div>
@@ -295,8 +294,7 @@
     <PenPick bind:value={S.buildings.pen} />
     <Select label="Fill" bind:value={S.buildings.fill} options={FILLS} />
     {#if S.buildings.fill === 'hatch'}
-      <Field label="Spacing" bind:value={S.buildings.spacing} step={0.1} min={0.2} max={5} unit="mm" />
-      <Field label="Angle" bind:value={S.buildings.angle} step={15} min={-180} max={180} unit="°" />
+      <HatchFields bind:pattern={S.buildings.pattern} bind:spacing={S.buildings.spacing} bind:angle={S.buildings.angle} maxSpacing={5} />
     {/if}
     <Field label="Smallest" bind:value={S.buildings.minSize} step={0.1} min={0} max={10} unit="mm" />
     <p class="hint">Buildings come in from 1:100k down. Smaller ones than this on paper are left out.</p>

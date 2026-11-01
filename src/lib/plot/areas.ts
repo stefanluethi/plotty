@@ -3,6 +3,7 @@
 
 import { clipPolyline, type Box, type Line } from './geom';
 import type { GridMap } from './relief';
+import type { HatchPattern } from '../settings';
 
 export type Ring = Line;
 export type Poly = Ring[];
@@ -24,42 +25,106 @@ export function polySize(p: Poly) {
   return Math.max(b.x1 - b.x0, b.y1 - b.y0);
 }
 
+export type HatchStyle = HatchPattern;
+
 /**
- * Parallel hatch lines inside polygons. Lines sit on one grid across the whole
- * sheet, so pieces from neighbouring tiles meet and the optimizer joins them.
+ * Hatching inside polygons: parallel lines, cross-hatching, dashes, waves or zigzags.
+ * Lines sit on one grid across the whole sheet (dashes and waves too), so pieces
+ * from neighbouring tiles meet and the optimizer joins them.
  */
-export function hatchPolys(polys: Poly[], angle: number, spacing: number, box: Box): Line[] {
+export function hatchPolys(polys: Poly[], angle: number, spacing: number, box: Box, style?: HatchStyle): Line[] {
+  if (style?.kind === 'cross') return [...hatchSet(polys, angle, spacing, box), ...hatchSet(polys, angle + style.cross, spacing, box)];
+  return hatchSet(polys, angle, spacing, box, style);
+}
+
+/** Triangle wave through 0 at t = 0, peaking at ±1 at t = ¼ and ¾. */
+function tri(t: number) {
+  const x = (((t - 0.25) % 1) + 1) % 1;
+  return 1 - 4 * Math.min(x, 1 - x);
+}
+
+function hatchSet(polys: Poly[], angle: number, spacing: number, box: Box, style?: HatchStyle): Line[] {
   const a = (angle * Math.PI) / 180;
   const c = Math.cos(a), s = Math.sin(a);
   // Rotate into (u, v) where hatch lines are v = const; paper y points down.
   const toU = (x: number, y: number) => x * c - y * s;
   const toV = (x: number, y: number) => x * s + y * c;
+
+  const kind = style?.kind ?? 'lines';
+  const wavy = kind === 'waves' || kind === 'zigzag';
+  const amp = wavy ? Math.max(0, style!.height) / 2 : 0;
+  const len = wavy ? Math.max(0.2, style!.length) : 1;
+  const wave = kind === 'zigzag' ? (u: number) => amp * tri(u / len) : (u: number) => amp * Math.sin((2 * Math.PI * u) / len);
+  // A wavy line v = k·spacing + wave(u) is a straight scanline in (u, w = v − wave(u)).
+  // Edges are split finely along u first, so they stay close to straight in w.
+  const step = len / 16;
+  // A wavy row lying exactly on a straight edge would cross it only at rounding noise and
+  // could pick the outer half-waves. Shifting the rows off the round grid avoids that tie.
+  const shift = amp ? spacing * 1e-6 : 0;
+  const dash = kind === 'dashes' ? Math.max(0.05, style!.dash) : 0;
+  const period = dash + (kind === 'dashes' ? Math.max(0.05, style!.gap) : 0);
+
   const out: Line[] = [];
+  const emit = (u0: number, u1: number, v: number) => {
+    const pts: number[] = [];
+    const put = (u: number) => {
+      const vv = v + (amp ? wave(u) : 0);
+      pts.push(u * c + vv * s, -u * s + vv * c);
+    };
+    put(u0);
+    if (amp && kind === 'zigzag') {
+      // Corners at every quarter and three-quarter wave.
+      for (let n = Math.ceil((u0 / len - 0.25) * 2); (n / 2 + 0.25) * len < u1; n++) put((n / 2 + 0.25) * len);
+    } else if (amp) {
+      for (let u = (Math.floor(u0 / step) + 1) * step; u < u1; u += step) put(u);
+    }
+    put(u1);
+    out.push(...clipPolyline(pts, box));
+  };
+
   for (const p of polys) {
-    let v0 = Infinity, v1 = -Infinity;
-    const edges: number[] = []; // u1, v1, u2, v2
+    let w0 = Infinity, w1 = -Infinity;
+    const edges: number[] = []; // u1, w1, u2, w2
     for (const r of p)
       for (let i = 2; i < r.length; i += 2) {
         const ua = toU(r[i - 2], r[i - 1]), va = toV(r[i - 2], r[i - 1]);
         const ub = toU(r[i], r[i + 1]), vb = toV(r[i], r[i + 1]);
-        edges.push(ua, va, ub, vb);
-        v0 = Math.min(v0, va, vb);
-        v1 = Math.max(v1, va, vb);
+        const m = amp ? Math.max(1, Math.ceil(Math.abs(ub - ua) / step)) : 1;
+        let pu = ua, pw = va - (amp ? wave(ua) : 0);
+        for (let j = 1; j <= m; j++) {
+          const u = ua + ((ub - ua) * j) / m;
+          const w = va + ((vb - va) * j) / m - (amp ? wave(u) : 0);
+          edges.push(pu, pw, u, w);
+          if (pw < w0) w0 = pw;
+          if (pw > w1) w1 = pw;
+          pu = u;
+          pw = w;
+        }
+        if (pw < w0) w0 = pw;
+        if (pw > w1) w1 = pw;
       }
     const xs: number[] = [];
-    for (let k = Math.ceil(v0 / spacing); k * spacing <= v1; k++) {
-      const v = k * spacing;
+    for (let k = Math.ceil((w0 - shift) / spacing); k * spacing + shift <= w1; k++) {
+      const v = k * spacing + shift;
       xs.length = 0;
       for (let i = 0; i < edges.length; i += 4) {
-        const va = edges[i + 1], vb = edges[i + 3];
-        if ((va <= v && v < vb) || (vb <= v && v < va)) xs.push(edges[i] + ((edges[i + 2] - edges[i]) * (v - va)) / (vb - va));
+        const wa = edges[i + 1], wb = edges[i + 3];
+        if ((wa <= v && v < wb) || (wb <= v && v < wa)) xs.push(edges[i] + ((edges[i + 2] - edges[i]) * (v - wa)) / (wb - wa));
       }
       xs.sort((m, n) => m - n);
       for (let i = 0; i + 1 < xs.length; i += 2) {
-        if (xs[i + 1] - xs[i] < 0.05) continue;
-        // Back from (u, v) to paper.
-        const seg = [xs[i] * c + v * s, -xs[i] * s + v * c, xs[i + 1] * c + v * s, -xs[i + 1] * s + v * c];
-        out.push(...clipPolyline(seg, box));
+        const u0 = xs[i], u1 = xs[i + 1];
+        if (u1 - u0 < 0.05) continue;
+        if (!dash) {
+          emit(u0, u1, v);
+          continue;
+        }
+        // Dashes on a sheet-wide grid, every other row shifted by half, like brickwork.
+        const off = k & 1 ? period / 2 : 0;
+        for (let j = Math.floor((u0 - off) / period); j * period + off < u1; j++) {
+          const d0 = Math.max(u0, j * period + off), d1 = Math.min(u1, j * period + off + dash);
+          if (d1 - d0 >= 0.05) emit(d0, d1, v);
+        }
       }
     }
   }
