@@ -82,7 +82,7 @@ Copy is sentence case, short and plain, in plotter vocabulary ("Pen-up", "Plot t
 A fixed app grid fills the viewport (`App.svelte`):
 
 ```
-┌──────────── header 52px: wordmark · Map|Sheet · pen rack · export ────────────┐
+┌─────── header 52px: wordmark · designs · Map|Sheet · pen rack · export ───────┐
 │ left 272px   │            center: map or sheet (well)             │ right 300px │
 │ area, terrain│                                                    │ layers,     │
 │ machine…     │                                                    │ tracks, text│
@@ -111,6 +111,7 @@ Two shared classes in `app.css`, plus Svelte components in `src/lib/ui/`.
 - **Segmented switch**: a tray in `--well` (or `--frame` over the map) holding segments. The selected segment is raised to `--frame-2`/`--frame-3` with an inset rule. Used for Map|Sheet (buttons with `aria-pressed`) and the base map choice (radio group).
 - **Toggle button**: a `.btn` with `.on` (lake border and text) and `aria-pressed`, used for view options on a floating toolbar ("Pen-up moves"). Don't put native checkboxes there.
 - **Pen rack** (`PenRack.svelte`): pen chips in the header, in plotting order. Each shows its order number, a nib swatch (its width scales with pen width), the name (cut off with an ellipsis after 14ch) and the width. The active chip has a lake border. Clicking a chip opens a popover editor under it, kept inside the window. Focus moves to the Name field and returns to the chip on Escape, ×, or a click outside.
+- **Design menu** (`DesignMenu.svelte`): sits right after the tool name and shows the current design's name (or "Designs"). A small `--ink-2` dot means it changed since it was saved, and a lake "Saved" appears briefly after saving. The popover under it follows the pen editor's pattern: a name box with Save (it reads "Replace" when the name belongs to another saved design), one notice line with an Undo button for opening and deleting, a list of saved designs (40px paper preview, name, scale and sheet, date; the current one in lake) and file buttons below a rule. Ctrl+S saves without opening it once the design has a name.
 - **Chip**: 24px pill used for presets (e.g. paper sizes). When selected, its border and text turn lake.
 - **Status bar**: one row of cells separated by `--rule-soft`, each with a condensed `--ink-3` key followed by its value. The left cells can be replaced by one message, in priority order: an error in `--danger` (`role="alert"`), the sheet sitting off the bed in `--warn`, or a non-blocking warning in `--warn` (storage full, font missing). While drawing, "Drawing" shows in lake. The bar is deliberately **not** a live region, since its numbers change on every scrub step.
 - **Drop target**: a 2px dashed lake border inset 12px over the view, on a dark see-through backing.
@@ -136,7 +137,7 @@ Almost none. Inline SVG drawn with strokes (chevron at 1.4px stroke) and text gl
 
 ## Adding a new tool
 
-- Reuse the shell: header (wordmark + tool name, view switch, pen rack, export), left/right panels of `Section`s, center view, status bar.
+- Reuse the shell: header (wordmark + tool name, design menu, view switch, pen rack, export), left/right panels of `Section`s, center view, status bar.
 - The sheet view and pen rack are shared and should look the same in every tool. Only the left and right panel contents change.
 - Use the existing tokens and controls. A new control should be built from `.ctl`/`.btn` and these states, not styled separately.
 - Status bar cells should report what matters before plotting (ink length, pen-up length, lifts, plot time) plus the tool's own key numbers.

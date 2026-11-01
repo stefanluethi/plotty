@@ -238,21 +238,48 @@ export function defaults(): Settings {
 const KEY = 'plotty.topo.v1';
 
 export function loadSettings(): Settings {
-  const d = defaults();
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return d;
+    if (!raw) return defaults();
     const s = JSON.parse(raw);
-    if (s?.version !== d.version) return d;
-    // Racks saved before the green pen was a default get it once; a pen removed later stays removed.
-    if (!(s.rackVersion >= 2) && Array.isArray(s.pens) && !s.pens.some((p: Pen) => p.id === GREEN_PEN.id)) s.pens = [...s.pens, { ...GREEN_PEN }];
-    s.rackVersion = d.rackVersion;
-    // buildings.fill used to be a yes/no switch for solid fill.
-    if (typeof s.buildings?.fill === 'boolean') s.buildings.fill = s.buildings.fill ? 'solid' : 'none';
-    return deepMerge(d, s) as Settings;
+    if (s?.version !== 1) return defaults();
+    return migrate(s);
   } catch {
-    return d;
+    return defaults();
   }
+}
+
+/** Brings settings saved by any earlier version up to date, filling gaps from the defaults. */
+export function migrate(raw: any): Settings {
+  const d = defaults();
+  const s = raw && typeof raw === 'object' ? { ...raw } : {};
+  // Racks saved before the green pen was a default get it once; a pen removed later stays removed.
+  if (!(s.rackVersion >= 2) && Array.isArray(s.pens) && !s.pens.some((p: Pen) => p?.id === GREEN_PEN.id)) s.pens = [...s.pens, { ...GREEN_PEN }];
+  s.rackVersion = d.rackVersion;
+  // buildings.fill used to be a yes/no switch for solid fill.
+  if (typeof s.buildings?.fill === 'boolean') s.buildings = { ...s.buildings, fill: s.buildings.fill ? 'solid' : 'none' };
+  const out = deepMerge(d, s) as Settings;
+  out.version = d.version;
+  // Lists can't be checked field by field like the rest, so drop entries that can't be drawn.
+  out.pens = out.pens.filter((p) => p && typeof p.id === 'string' && typeof p.color === 'string' && p.width > 0);
+  if (!out.pens.length) out.pens = d.pens;
+  out.tracks = out.tracks.filter((t) => t && typeof t.id === 'string' && Array.isArray(t.segments) && t.segments.every(Array.isArray));
+  for (const p of out.pens) p.name = String(p.name ?? 'Pen');
+  for (const t of out.tracks) {
+    t.name = String(t.name ?? 'Track');
+    t.passes = t.passes >= 1 ? t.passes : 1;
+    t.visible = t.visible !== false;
+  }
+  // Anything drawn with a pen that isn't in the rack falls back to the first pen.
+  const ids = new Set(out.pens.map((p) => p.id));
+  const fix = (o: any) => {
+    for (const k of Object.keys(o)) {
+      if (/^(pen|\w+Pen)$/.test(k) && typeof o[k] === 'string' && !ids.has(o[k])) o[k] = out.pens[0].id;
+      else if (o[k] && typeof o[k] === 'object' && k !== 'segments' && k !== 'pens') fix(o[k]);
+    }
+  };
+  fix(out);
+  return out;
 }
 
 /** 'tracks': everything but the GPS tracks was saved, they are too big for browser storage. */
@@ -279,7 +306,8 @@ function deepMerge(base: any, over: any): any {
     for (const k of Object.keys(base)) if (over && k in over) out[k] = deepMerge(base[k], over[k]);
     return out;
   }
-  return over ?? base;
+  // A value of the wrong type (from a damaged or hand-edited file) keeps the default.
+  return typeof over === typeof base && !(typeof over === 'number' && !isFinite(over)) ? over : base;
 }
 
 export function paperSize(s: Settings): [number, number] {

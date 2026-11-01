@@ -9,8 +9,11 @@
   import RightPanel from './lib/ui/RightPanel.svelte';
   import SheetView from './lib/ui/SheetView.svelte';
   import StatusBar from './lib/ui/StatusBar.svelte';
+  import DesignMenu from './lib/ui/DesignMenu.svelte';
+  import { designs, slug } from './lib/designs.svelte';
 
   let right: RightPanel;
+  let designMenu: DesignMenu;
 
   // MapLibre is about half the app's code; fetch it only once the map is wanted.
   let mapView: Promise<typeof import('./lib/ui/MapView.svelte')> | null = $state(null);
@@ -29,20 +32,14 @@
     const snap = $state.snapshot(S) as Settings;
     untrack(() => {
       engine.save(snap);
+      designs.track(snap);
       engine.requestDem(snap);
       engine.requestFeatures(snap);
       engine.compose(snap);
     });
   });
 
-  const fileBase = $derived(
-    (S.title.text || 'topo')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'topo',
-  );
+  const fileBase = $derived(slug(designs.name || S.title.text || 'topo'));
 
   // Export what the settings say now, not a plot that is still being redrawn.
   let exporting = $state(false);
@@ -63,7 +60,11 @@
   function onDrop(e: DragEvent) {
     e.preventDefault();
     dragging = false;
-    if (e.dataTransfer?.files.length) right.importFiles(e.dataTransfer.files);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const design = files.find((f) => /\.json$/i.test(f.name));
+    if (design) designMenu.openFile(design);
+    const rest = files.filter((f) => f !== design);
+    if (rest.length) right.importFiles(rest);
   }
 
   function onKey(e: KeyboardEvent) {
@@ -98,6 +99,7 @@
       <Wordmark />
       <span class="tool">Topo</span>
     </div>
+    <DesignMenu bind:this={designMenu} />
     <div class="views" role="group" aria-label="View">
       <button
         aria-pressed={S.view.mode === 'map'}
@@ -140,7 +142,7 @@
     </div>
     <div class="pane" class:hidden={S.view.mode !== 'sheet'}><SheetView visible={S.view.mode === 'sheet'} /></div>
     {#if dragging}
-      <div class="drop">Drop GPX files to add them as tracks</div>
+      <div class="drop">Drop GPX files to add them as tracks, or a design file to open it</div>
     {/if}
   </main>
   <RightPanel bind:this={right} />

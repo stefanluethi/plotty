@@ -13,6 +13,7 @@ Draws Swiss topographic contour lines for any area you pick on the swisstopo map
 - **Forest** (edges, hatching or tree symbols), **glacier edges**, **buildings** (outlined or filled), **boundaries** (national, canton, district, municipality, parks; solid or dashed) and **labels** for peaks with heights, places and spot heights, placed without overlaps and with other lines broken around them. Contours on glaciers and rock can go to their own pens, as on Swiss maps.
 - **Lakes and rivers** from swisstopo vector data, **GPX tracks** (import or drop a file) with their own pen and width, plus an optional break in the other lines around the track. Also a **frame** and a **title** in single-stroke Hershey fonts.
 - **Sheet view** shows the plotter bed to scale with the sheet where it will sit, every line drawn at its real pen width, and optionally the pen-up moves.
+- **Designs**: save named designs in the browser (with a small preview of each), or save them to a `.plotty.json` file to keep or share. Open a file with the Designs menu or drop it on the window. A design holds everything except the machine settings, so opening one never moves the sheet on your bed. Ctrl+S saves the current design; opening or deleting one can be undone.
 - **Export**: layered SVG (one Inkscape layer per pen), or gcode for Klipper. The gcode lowers the pen with `G1 Z0` and raises it with `G0 Z5` (servo via the `G0`/`G1` macros). Pens are plotted in rack order, with `PAUSE` and an `M117` message at each pen change. All of this can be edited under Machine.
 
 ### Run
