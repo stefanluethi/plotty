@@ -135,19 +135,26 @@
     if (engine.focusTick) untrack(() => fit(true));
   });
 
-  // Dragging the frame moves the area; dragging a corner changes the scale.
-  let drag: { kind: 'move' | 'scale'; e0: number; n0: number; ae: number; an: number } | null = null;
+  // Dragging the frame moves the area. Dragging a corner changes the scale while the
+  // opposite corner stays put, so an edge can be placed exactly where it should go.
+  let drag: { kind: 'move' | 'scale'; e0: number; n0: number; ae: number; an: number; sx: number; sy: number } | null = null;
   function pointerLV(ev: PointerEvent): [number, number] {
     const r = el.getBoundingClientRect();
     const ll = map!.unproject([ev.clientX - r.left, ev.clientY - r.top]);
     return toLV95(ll.lng, ll.lat);
   }
-  function start(ev: PointerEvent, kind: 'move' | 'scale') {
+  // Corners in the order the frame lists them: NW, NE, SE, SW. sx/sy point from the fixed corner to the grabbed one.
+  const CORNERS = [[-1, 1], [1, 1], [1, -1], [-1, -1]];
+  function start(ev: PointerEvent, kind: 'move' | 'scale', corner = 0) {
     if (!map || ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
     const [e, n] = pointerLV(ev);
-    drag = { kind, e0: e, n0: n, ae: S.area.e, an: S.area.n };
+    const [sx, sy] = CORNERS[corner];
+    // For scaling, (ae, an) is the opposite corner, which stays where it is.
+    const ae = kind === 'scale' ? (sx > 0 ? L.west : L.east) : S.area.e;
+    const an = kind === 'scale' ? (sy > 0 ? L.south : L.north) : S.area.n;
+    drag = { kind, e0: e, n0: n, ae, an, sx, sy };
     (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
   }
   function moveDrag(ev: PointerEvent) {
@@ -157,11 +164,18 @@
       S.area.e = Math.round(drag.ae + (e - drag.e0));
       S.area.n = Math.round(drag.an + (n - drag.n0));
     } else {
-      const sx = (Math.abs(e - S.area.e) * 2) / L.map.w;
-      const sy = (Math.abs(n - S.area.n) * 2) / L.map.h;
-      const scale = Math.max(sx, sy) * 1000;
-      const nice = scale < 20000 ? 500 : scale < 100000 ? 1000 : 5000;
-      S.area.scale = Math.min(1_000_000, Math.max(2000, Math.round(scale / nice) * nice));
+      // Big enough to reach the pointer on both axes, with the sheet's proportions. The pointer can't
+      // pull the corner past the fixed one; the smallest scale stops it first.
+      const w = Math.max(0, (e - drag.ae) * drag.sx) / L.map.w;
+      const h = Math.max(0, (n - drag.an) * drag.sy) / L.map.h;
+      const raw = Math.max(w, h) * 1000;
+      // Round to a tidy scale, fine enough that the corner lands within a few metres on the map.
+      const nice = raw < 100000 ? 100 : raw < 500000 ? 500 : 1000;
+      const scale = Math.min(1_000_000, Math.max(2000, Math.round(raw / nice) * nice));
+      const mPerMm = scale / 1000;
+      S.area.scale = scale;
+      S.area.e = Math.round(drag.ae + (drag.sx * L.map.w * mPerMm) / 2);
+      S.area.n = Math.round(drag.an + (drag.sy * L.map.h * mPerMm) / 2);
     }
   }
   function end() {
@@ -215,11 +229,12 @@
       {#each frame.c as [x, y], i (i)}
         <rect
           class="handle"
+          style:cursor={i % 2 ? 'nesw-resize' : 'nwse-resize'}
           x={x - 6}
           y={y - 6}
           width="12"
           height="12"
-          onpointerdown={(e) => start(e, 'scale')}
+          onpointerdown={(e) => start(e, 'scale', i)}
           onpointermove={moveDrag}
           onpointerup={end}
           onwheel={forwardWheel}
@@ -243,7 +258,7 @@
     </div>
     <button class="btn" onclick={() => fit(true)}>Show selection</button>
   </div>
-  <p class="help">Drag the frame to move it, drag a corner to change the scale.</p>
+  <p class="help">Drag the frame to move it. Drag a corner to change the scale; the opposite corner stays put.</p>
 </div>
 
 <style>
@@ -292,7 +307,6 @@
     stroke: var(--lake);
     stroke-width: 1.5;
     pointer-events: all;
-    cursor: nwse-resize;
     touch-action: none;
   }
   .tag {

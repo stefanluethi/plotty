@@ -6,7 +6,7 @@ Browser tools for making pen-plotter art and sending it straight to the plotter 
 
 Draws Swiss topographic contour lines for any area you pick on the swisstopo map.
 
-- **Pick an area**: search a place or drag the frame on the map. Drag a corner to change the scale. The frame always has the proportions of your sheet.
+- **Pick an area**: search a place or drag the frame on the map. Drag a corner to change the scale while the opposite corner stays put, so an edge lands exactly where you drop it. The frame always has the proportions of your sheet.
 - **Contours**: the interval is chosen from your pen width, so lines keep a set number of pen widths apart. In steep terrain, intermediate lines are dropped instead of merging into black, and every Nth line can be drawn heavier with extra passes.
 - **Relief shading** brings back the 3D look of a shaded map, lit from the northwest by default. Three optional layers can be combined: *illuminated contours* (Tanaka: extra passes where a slope turns away from the light, with the lit side thin, left out or in a second pen such as a white pen on toned paper), *shadow hatching* (1–4 tones of parallel and cross-hatched lines on slopes darker than flat ground), and *hachures* (short downhill strokes in rows, as on the Dufour and Siegfried maps, heavier in shade or on steep ground; strokes can be joined along a row to save pen lifts).
 - **Roads** (motorways, main roads with extra passes, local roads, farm tracks), **paths and trails** by their signposted grade (yellow hiking, white-red-white mountain, white-blue-white alpine, unmarked; solid or dashed) and **railways and lifts**, all from the swisstopo base map vector tiles.
