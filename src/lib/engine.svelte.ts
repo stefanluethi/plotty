@@ -51,29 +51,40 @@ class Engine {
       this.error = `Rendering failed: ${ev.message || 'the drawing worker crashed'}. Change a setting to retry.`;
       this.next();
     };
-    this.loadFonts();
+    this.ensureFonts(['HersheyScript1']); // the wordmark
   }
 
-  private async loadFonts() {
+  private fontJobs = new Map<string, Promise<void>>();
+  private fontFailed = new Set<string>();
+
+  /** Fetch fonts not loaded yet and hand them to the drawing worker. Fonts load only once they are used. */
+  ensureFonts(names: string[]): Promise<void> {
     const base = import.meta.env.BASE_URL;
-    const out: Record<string, StrokeFont> = {};
-    await Promise.all(
-      FONTS.map(async (f) => {
-        try {
-          const r = await fetch(`${base}fonts/${f.id}.svg`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const txt = await r.text();
-          out[f.id] = parseFont(txt);
-          this.worker.postMessage({ type: 'font', name: f.id, font: out[f.id] });
-        } catch (e) {
-          console.warn('font failed', f.id, e);
-        }
-      }),
-    );
-    this.fonts = out;
-    const missing = FONTS.filter((f) => !out[f.id]).map((f) => f.label);
-    if (missing.length) this.warning = `Font${missing.length > 1 ? 's' : ''} ${missing.join(', ')} could not be loaded. Titles in ${missing.length > 1 ? 'them' : 'it'} are left out.`;
-    this.compose($state.snapshot(S) as Settings);
+    const jobs = [...new Set(names)].map((name) => {
+      let job = this.fontJobs.get(name);
+      if (!job) {
+        job = (async () => {
+          try {
+            const r = await fetch(`${base}fonts/${name}.svg`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const font = parseFont(await r.text());
+            this.worker.postMessage({ type: 'font', name, font });
+            this.fonts = { ...this.fonts, [name]: font };
+            this.fontFailed.delete(name);
+          } catch (e) {
+            console.warn('font failed', name, e);
+            this.fontFailed.add(name);
+            this.fontJobs.delete(name); // try again next time it's needed
+          }
+          const missing = FONTS.filter((f) => this.fontFailed.has(f.id)).map((f) => f.label);
+          if (missing.length) this.warning = `Font${missing.length > 1 ? 's' : ''} ${missing.join(', ')} could not be loaded. Text in ${missing.length > 1 ? 'them' : 'it'} uses another font.`;
+          else if (this.warning.startsWith('Font')) this.warning = '';
+        })();
+        this.fontJobs.set(name, job);
+      }
+      return job;
+    });
+    return Promise.all(jobs).then(() => {});
   }
 
   save(s: Settings) {
@@ -97,11 +108,17 @@ class Engine {
   compose(s: Settings) {
     clearTimeout(this.composeTimer);
     this.composeQueued = true;
-    this.composeTimer = setTimeout(() => {
+    const timer = (this.composeTimer = setTimeout(async () => {
+      // Draw only once the fonts in use are here, so text (and exports) never fall back to another font.
+      const wanted = [s.labels.enabled && s.labels.font, s.title.enabled && s.title.font].filter(Boolean) as string[];
+      if (wanted.some((f) => !this.fonts[f])) {
+        await this.ensureFonts(wanted);
+        if (this.composeTimer !== timer) return; // newer settings arrived meanwhile
+      }
       this.composeQueued = false;
       this.pending = s;
       if (!this.busy) this.next();
-    }, 60);
+    }, 60));
   }
 
   private next() {

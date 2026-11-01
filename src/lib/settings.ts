@@ -31,7 +31,10 @@ export interface HatchPattern {
 
 export type PaperPreset = 'A5' | 'A4' | 'A3' | 'A2' | '50x70' | 'custom';
 export type DemSource = 'auto' | 'alti3d' | 'regio';
-export type FontName = 'HersheySans1' | 'HersheySerifMed' | 'HersheyScript1' | 'EMSReadability' | 'EMSTech';
+export type FontName =
+  | 'HersheySans1' | 'HersheySansMed' | 'HersheySerifMed' | 'HersheySerifMedItalic' | 'HersheySerifBold' | 'HersheySerifBoldItalic'
+  | 'HersheyScript1' | 'HersheyScriptMed' | 'HersheyGothEnglish'
+  | 'EMSReadability' | 'EMSReadabilityItalic' | 'EMSTech' | 'EMSAllure' | 'EMSElfin' | 'EMSFelix' | 'EMSNixish' | 'EMSNixishItalic' | 'EMSOsmotron';
 
 export interface Settings {
   version: number;
@@ -159,12 +162,26 @@ export const PAPER: Record<Exclude<PaperPreset, 'custom'>, [number, number]> = {
   '50x70': [500, 700],
 };
 
+// Single-stroke fonts. 'Medium' and 'bold' Hershey fonts draw each stroke two or three times over.
 export const FONTS: { id: FontName; label: string }[] = [
   { id: 'HersheySans1', label: 'Hershey Sans' },
+  { id: 'HersheySansMed', label: 'Hershey Sans Medium' },
   { id: 'HersheySerifMed', label: 'Hershey Serif' },
+  { id: 'HersheySerifMedItalic', label: 'Hershey Serif Italic' },
+  { id: 'HersheySerifBold', label: 'Hershey Serif Bold' },
+  { id: 'HersheySerifBoldItalic', label: 'Hershey Serif Bold Italic' },
   { id: 'HersheyScript1', label: 'Hershey Script' },
+  { id: 'HersheyScriptMed', label: 'Hershey Script Medium' },
+  { id: 'HersheyGothEnglish', label: 'Hershey Gothic' },
   { id: 'EMSReadability', label: 'EMS Readability' },
+  { id: 'EMSReadabilityItalic', label: 'EMS Readability Italic' },
   { id: 'EMSTech', label: 'EMS Tech' },
+  { id: 'EMSAllure', label: 'EMS Allure' },
+  { id: 'EMSElfin', label: 'EMS Elfin' },
+  { id: 'EMSFelix', label: 'EMS Felix' },
+  { id: 'EMSNixish', label: 'EMS Nixish' },
+  { id: 'EMSNixishItalic', label: 'EMS Nixish Italic' },
+  { id: 'EMSOsmotron', label: 'EMS Osmotron' },
 ];
 
 export const HATCH_LINES: HatchPattern = { kind: 'lines', cross: 90, dash: 1, gap: 0.5, height: 0.4, length: 2 };
