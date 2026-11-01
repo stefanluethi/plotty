@@ -167,6 +167,25 @@
     <p class="hint">Using {demInfo}. Smaller detail loads more data; 0.3 mm is plenty for most pens.</p>
   </Section>
 
+  <Section
+    title="Lines"
+    open={false}
+    meta={S.lines.smoothing > 0 || S.lines.trackSmoothing > 0 ? 'Smoothed' : ''}
+  >
+    <span class="label sub-head">Smoothing</span>
+    <Field label="Map lines" bind:value={S.lines.smoothing} step={0.05} min={0} max={3} unit="mm" />
+    <Field label="GPS tracks" bind:value={S.lines.trackSmoothing} step={0.05} min={0} max={5} unit="mm" />
+    <p class="hint">
+      Rounds off corners and GPS jitter over about this distance on paper. Map lines are rivers, lake shores, roads,
+      paths, railways, boundaries and forest and glacier edges; contours have their own smoothing. 0 is off.
+    </p>
+    <Field label="Join ends within" bind:value={S.lines.join} step={0.05} min={0} max={2} unit="mm" wide />
+    <p class="hint">
+      Lines of one pen whose ends are this close are drawn as one stroke, without lifting the pen. Each pen's lines are
+      also ordered to keep pen-up moves short, and loops start where the pen already is.
+    </p>
+  </Section>
+
   <Section title="Machine" open={false} meta="{S.machine.bedW} × {S.machine.bedH}">
     <Field label="Bed width" bind:value={S.machine.bedW} step={10} min={50} unit="mm" />
     <Field label="Bed height" bind:value={S.machine.bedH} step={10} min={50} unit="mm" />
@@ -269,5 +288,8 @@
   }
   .warn {
     color: var(--warn);
+  }
+  .sub-head {
+    margin-bottom: -2px;
   }
 </style>

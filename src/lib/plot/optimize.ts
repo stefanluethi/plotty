@@ -92,3 +92,29 @@ export function travelStats(lines: ArrayLike<number>[], startX = 0, startY = 0) 
   }
   return { draw, travel, lifts };
 }
+
+/**
+ * Start every closed loop at its point nearest to where the pen comes from, so the pen
+ * doesn't travel round to the loop's old start. Loops are lines whose ends meet within tol.
+ */
+export function reloop(lines: number[][], startX = 0, startY = 0, tol = 0.02): number[][] {
+  let cx = startX, cy = startY;
+  return lines.map((l) => {
+    const n = l.length;
+    if (n >= 8 && Math.hypot(l[0] - l[n - 2], l[1] - l[n - 1]) <= tol) {
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < n - 2; i += 2) {
+        const d = (l[i] - cx) ** 2 + (l[i + 1] - cy) ** 2;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best > 0) {
+        // Rotate: best … end (dropping the repeated first point), start … best.
+        const r = l.slice(best, n - 2).concat(l.slice(0, best + 2));
+        l = r;
+      }
+    }
+    cx = l[l.length - 2];
+    cy = l[l.length - 1];
+    return l;
+  });
+}

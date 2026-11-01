@@ -244,3 +244,138 @@ export function dashLine(l: Line, dash: number, gap: number): Line[] {
 export function rectLine(x: number, y: number, w: number, h: number): Line {
   return [x, y, x + w, y, x + w, y + h, x, y + h, x, y];
 }
+
+/**
+ * Gaussian smoothing along the line, sigma in mm. The line is resampled evenly first.
+ * Open lines keep both end points, so lines that meet at an end still meet.
+ * Lines whose ends meet within closeTol are smoothed as loops.
+ */
+export function smoothLine(l: Line, sigma: number, closeTol = 1e-6): Line {
+  const n = l.length / 2;
+  if (sigma <= 0 || n < 3) return l;
+  const closed = Math.hypot(l[0] - l[l.length - 2], l[1] - l[l.length - 1]) <= closeTol;
+  // Cumulative length.
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.hypot(l[2 * i] - l[2 * i - 2], l[2 * i + 1] - l[2 * i - 1]);
+  const total = cum[n - 1];
+  // Smoothing pulls a loop inward (a circle of radius r shrinks by exp(-σ²/2r²)). Cap it so
+  // small loops such as ponds and roundabouts keep about 90% of their size instead of vanishing.
+  if (closed) sigma = Math.min(sigma, (0.46 * total) / (2 * Math.PI));
+  const step0 = Math.max(0.02, sigma / 2);
+  if (total < step0 * 3) return l;
+  const N = Math.max(3, Math.round(total / step0));
+  const h = total / N;
+  // Even resampling: N + 1 points from start to end (for loops the last repeats the first).
+  const xs = new Float64Array(N + 1), ys = new Float64Array(N + 1);
+  let j = 0;
+  for (let i = 0; i <= N; i++) {
+    const d = Math.min(total, i * h);
+    while (j < n - 2 && cum[j + 1] < d) j++;
+    const seg = cum[j + 1] - cum[j];
+    const t = seg > 0 ? (d - cum[j]) / seg : 0;
+    xs[i] = l[2 * j] + (l[2 * j + 2] - l[2 * j]) * t;
+    ys[i] = l[2 * j + 1] + (l[2 * j + 3] - l[2 * j + 1]) * t;
+  }
+  const R = Math.min(Math.ceil((3 * sigma) / h), closed ? Math.floor(N / 2) : N);
+  const w = new Float64Array(R + 1);
+  for (let k = 0; k <= R; k++) w[k] = Math.exp(-((k * h) ** 2) / (2 * sigma * sigma));
+  const out: Line = new Array(2 * (N + 1));
+  for (let i = 0; i <= N; i++) {
+    if (closed && i === N) {
+      out[2 * i] = out[0];
+      out[2 * i + 1] = out[1];
+      break;
+    }
+    // Near the ends of an open line the window shrinks evenly, so the end point stays put.
+    const r = closed ? R : Math.min(R, i, N - i);
+    let sx = xs[i] * w[0], sy = ys[i] * w[0], sw = w[0];
+    for (let k = 1; k <= r; k++) {
+      let a = i - k, b = i + k;
+      if (closed) {
+        a = ((a % N) + N) % N;
+        b = b % N;
+      }
+      sx += (xs[a] + xs[b]) * w[k];
+      sy += (ys[a] + ys[b]) * w[k];
+      sw += 2 * w[k];
+    }
+    out[2 * i] = sx / sw;
+    out[2 * i + 1] = sy / sw;
+  }
+  return out;
+}
+
+/**
+ * Join lines whose ends lie within tol of each other into longer lines, reversing
+ * them where needed. With throughOnly, lines are only joined where exactly two ends
+ * meet, so junctions (three or more ends) stay end points of every branch.
+ */
+export function mergeLines(lines: Line[], tol: number, throughOnly = false): Line[] {
+  const n = lines.length;
+  if (n < 2) return lines;
+  const cell = Math.max(tol, 1e-3) * 2;
+  const tol2 = Math.max(tol, 1e-6) ** 2;
+  const grid = new Map<number, number[]>(); // end id = line * 2 + (0 start | 1 end)
+  const key = (cx: number, cy: number) => (cx + 1048576) * 2097152 + (cy + 1048576);
+  const ex = (id: number) => (id & 1 ? lines[id >> 1][lines[id >> 1].length - 2] : lines[id >> 1][0]);
+  const ey = (id: number) => (id & 1 ? lines[id >> 1][lines[id >> 1].length - 1] : lines[id >> 1][1]);
+  for (let id = 0; id < 2 * n; id++) {
+    if (lines[id >> 1].length < 4) continue;
+    const k = key(Math.floor(ex(id) / cell), Math.floor(ey(id) / cell));
+    let c = grid.get(k);
+    if (!c) grid.set(k, (c = []));
+    c.push(id);
+  }
+  /** All ends within tol of (x, y), used or not. */
+  const near = (x: number, y: number) => {
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+    const found: number[] = [];
+    for (let i = cx - 1; i <= cx + 1; i++)
+      for (let j = cy - 1; j <= cy + 1; j++) {
+        const c = grid.get(key(i, j));
+        if (c) for (const id of c) if ((ex(id) - x) ** 2 + (ey(id) - y) ** 2 <= tol2) found.push(id);
+      }
+    return found;
+  };
+  const used = new Uint8Array(n);
+  const closedLine = (l: Line) => (l[0] - l[l.length - 2]) ** 2 + (l[1] - l[l.length - 1]) ** 2 <= tol2;
+  /** The free end that continues from (x, y), or -1. */
+  const next = (x: number, y: number) => {
+    const ids = near(x, y);
+    if (throughOnly && ids.length !== 2) return -1;
+    for (const id of ids) if (!used[id >> 1]) return id;
+    return -1;
+  };
+  const out: Line[] = [];
+  for (let i = 0; i < n; i++) {
+    if (used[i] || lines[i].length < 4) continue;
+    used[i] = 1;
+    let cur = lines[i].slice();
+    if (!closedLine(cur)) {
+      // Grow forward from the end, then backward from the start.
+      for (let dir = 0; dir < 2; dir++) {
+        for (;;) {
+          if (closedLine(cur)) break;
+          const id = next(cur[cur.length - 2], cur[cur.length - 1]);
+          if (id < 0) break;
+          used[id >> 1] = 1;
+          const l = lines[id >> 1];
+          if (id & 1) for (let k = l.length - 4; k >= 0; k -= 2) cur.push(l[k], l[k + 1]);
+          else for (let k = 2; k < l.length; k += 2) cur.push(l[k], l[k + 1]);
+        }
+        cur = reversed(cur);
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+export function reversed(l: Line): Line {
+  const r: Line = new Array(l.length);
+  for (let i = 0; i < l.length; i += 2) {
+    r[l.length - 2 - i] = l[i];
+    r[l.length - 1 - i] = l[i + 1];
+  }
+  return r;
+}

@@ -3,9 +3,9 @@ import { computeLayout, type Layout } from '../layout';
 import type { DemGrid } from '../geo/dem';
 import type { MapFeatures, WayKind } from '../geo/features';
 import { blur, slopeGrid, niceInterval, traceContours, type ContourLine } from './contours';
-import { clipPolyline, simplify, lineLength, passes, densify, SegmentIndex, splitWhere, rectLine, dashLine, type Line } from './geom';
+import { clipPolyline, simplify, lineLength, passes, densify, SegmentIndex, splitWhere, rectLine, dashLine, smoothLine, mergeLines, type Line } from './geom';
 import { renderText, textWidth, type StrokeFont } from './font';
-import { orderLines, joinLines, travelStats } from './optimize';
+import { orderLines, joinLines, travelStats, reloop } from './optimize';
 import { gradients, shadeGrid, tanaka, hatch, hachures, lightVector, type GridMap } from './relief';
 import { hatchPolys, treeSymbols, polySize, groundGrid, splitByGround } from './areas';
 import { placeLabels, RectIndex, type LabelItem, type Rect } from './labels';
@@ -197,7 +197,7 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
     const p = pen(t.pen);
     const lines: Line[] = [];
     for (const seg of t.segments) {
-      for (const piece of clipPolyline(toPaperLine(seg), L.map)) {
+      for (const piece of clipPolyline(smoothLine(toPaperLine(seg), s.lines.trackSmoothing), L.map)) {
         const simple = simplify(piece, SIMPLIFY);
         knock.add(simple);
         lines.push(...passes(simple, t.passes, p.width * 0.6).flatMap((l) => clipPolyline(l, L.map)));
@@ -270,7 +270,15 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
       : fill === 'solid'
         ? hatchPolys(polys, angle, p.width * 0.85, L.map)
         : hatchPolys(polys, angle, Math.max(0.2, spacing), L.map, pattern);
-  const toPaper = (lvs: number[][]) => lvs.flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
+  // Map lines come cut at tile borders. To smooth across those cuts, pieces are first joined
+  // where exactly two ends meet; junctions stay end points, and smoothing keeps end points, so
+  // branches still meet. Clipping to the map comes last, so lines still end on the frame.
+  const smoothing = Math.max(0, s.lines.smoothing);
+  const toPaper = (lvs: number[][]) => {
+    let lines = lvs.map(toPaperLine);
+    if (smoothing > 0) lines = mergeLines(lines, 0.01, true).map((l) => smoothLine(l, smoothing, 0.01));
+    return lines.flatMap((l) => clipPolyline(l, L.map));
+  };
   const dashed = (lines: Line[], on: boolean, dash: number, gap: number) =>
     on ? joinLines(orderLines(lines, 0, 0)).flatMap((l) => dashLine(l, Math.max(0.1, dash), Math.max(0.1, gap))) : lines;
 
@@ -434,7 +442,7 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
 
   // Roads, paths, railways
   if (features) {
-    const ways = (kinds: WayKind[]) => kinds.flatMap((k) => features.ways[k] ?? []).flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
+    const ways = (kinds: WayKind[]) => toPaper(kinds.flatMap((k) => features.ways[k] ?? []));
     if (s.roads.enabled) {
       const r = s.roads;
       const rp = pen(r.pen);
@@ -504,7 +512,7 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
     if (s.water.lakes) sets.push(water.lakes);
     if (s.water.rivers) sets.push(water.rivers);
     if (s.water.streams) sets.push(water.streams);
-    const lines = sets.flat().flatMap((lv) => clipPolyline(toPaperLine(lv), L.map));
+    const lines = toPaper(sets.flat());
     add(wp.id, finish(lines, 0.5));
     if (s.water.lakes && s.water.fill !== 'none') {
       const polys = water.lakePolys.map((p) => p.map(toPaperLine));
@@ -549,13 +557,15 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
 
   for (const t of trackLines) add(t.penId, t.lines);
 
-  // Order per pen, in rack order.
+  // Per pen, in rack order: join touching lines into single strokes, order them to keep
+  // pen-up moves short, and start each loop where the pen already is.
   const pens: PenOutput[] = [];
+  const joinTol = Math.max(0.005, s.lines.join);
   let cx = 0, cy = 0;
   for (const p of s.pens) {
     const lines = byPen.get(p.id);
     if (!lines?.length) continue;
-    const ordered = joinLines(orderLines(lines, cx, cy));
+    const ordered = joinLines(reloop(orderLines(mergeLines(lines, joinTol), cx, cy), cx, cy, joinTol), joinTol);
     const st = travelStats(ordered, cx, cy);
     const last = ordered[ordered.length - 1];
     cx = last[last.length - 2];

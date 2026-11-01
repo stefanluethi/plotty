@@ -117,6 +117,11 @@ export interface Settings {
   };
   tracks: Track[];
   knockout: { enabled: boolean; gap: number }; // break other lines around tracks
+  lines: {
+    smoothing: number; // map lines (water, roads, paths, rail, boundaries, edges), mm on paper; 0 = off
+    trackSmoothing: number; // GPS tracks, mm on paper; 0 = off
+    join: number; // join line ends closer than this into one stroke, mm
+  };
   frame: { enabled: boolean; pen: string; offset: number; double: boolean; gap: number };
   title: {
     enabled: boolean;
@@ -219,6 +224,7 @@ export function defaults(): Settings {
     },
     tracks: [],
     knockout: { enabled: true, gap: 0.8 },
+    lines: { smoothing: 0, trackSmoothing: 0, join: 0.05 },
     frame: { enabled: true, pen: 'p1', offset: 0, double: false, gap: 1.5 },
     title: {
       enabled: true,
