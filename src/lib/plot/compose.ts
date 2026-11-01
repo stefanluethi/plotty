@@ -326,7 +326,9 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
       const index: Line[] = [];
       for (const t of levels) {
         const kIdx = Math.round(t.level / interval);
-        const isIndex = c.index.enabled && kIdx % c.index.every === 0;
+        // Every Nth line is never thinned, heavier or not, so steep ground keeps a frame of lines.
+        const isMain = kIdx % c.index.every === 0;
+        const isIndex = c.index.enabled && isMain;
         let lines: Line[];
         const pts = t.pts;
         const paper: Line = new Array(pts.length);
@@ -334,7 +336,7 @@ export function compose(s: Settings, dem: DemGrid | null, features: MapFeatures 
           paper[i] = ox + pts[i] * k;
           paper[i + 1] = oy + pts[i + 1] * k;
         }
-        if (c.thin && !isIndex) {
+        if (c.thin && !isMain) {
           let mult = 1;
           for (const m of chain) if (kIdx % m === 0) mult = m;
           const n = pts.length / 2;

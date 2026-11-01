@@ -111,6 +111,9 @@
     <Toggle label="Thin out in steep terrain" bind:checked={S.contours.thin} />
     {#if S.contours.thin}
       <Field label="Thin below" bind:value={S.contours.thinSpacing} step={0.25} min={1} max={10} unit="widths" wide />
+      {#if !S.contours.index.enabled}
+        <Field label="Always keep every" bind:value={S.contours.index.every} step={1} min={2} max={20} unit="lines" wide />
+      {/if}
     {/if}
     <Field label="Shortest line" bind:value={S.contours.minLength} step={0.5} min={0} max={50} unit="mm" />
 
